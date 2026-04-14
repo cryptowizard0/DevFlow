@@ -18,6 +18,8 @@
       "Resume the active DevFlow task and tell me the next action",
       "Run DevFlow review or complete the current task"
     ],
-    "brandColor": "#1F6FEB"
+    "brandColor": "#8DB6FF",
+    "composerIcon": "./assets/icon.svg",
+    "logo": "./assets/logo.svg"
   }
 }
