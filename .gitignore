@@ -1,0 +1,5 @@
+codex-plan.md
+dev.md
+.DS_Store
+__pycache__/
+*.pyc

@@ -1,68 +1,191 @@
-# DevFlow Workspace Console
+# DevFlow
 
-一个可直接在浏览器中打开运行的零依赖 DevFlow 管理界面，用来查看多个 `DevFlowWorkspace` 的任务列表、当前 task、任务状态和关键文档摘要。
+DevFlow is a Codex plugin for complex engineering tasks. It runs work through an explicit `plan -> dev -> review -> done` lifecycle and persists state, plans, development notes, and review output in `DevFlowWorkspace/`.
 
-## 运行方式
+This repository is intended to be agent-friendly: the public interface is the `devflow` skill, and agents should use that entrypoint rather than operating the underlying scripts directly.
 
-这个界面现在作为插件静态资产一起打包，真实入口在：
+## What DevFlow Is For
 
-- [plugins/devflow/assets/console/index.html](/Users/webbergao/work/src/DevFlow/plugins/devflow/assets/console/index.html)
+Use DevFlow when the task is large enough that it benefits from:
 
-仓库根下的 [index.html](/Users/webbergao/work/src/DevFlow/index.html) 只是一个跳转页，方便本地开发时直接打开。
+- an explicit planning phase before code changes
+- tracked development progress across multiple iterations
+- an independent review phase before completion
+- resumable task state backed by repository files
 
-如果想从插件目录稳定定位并打开界面，可以运行：
+DevFlow persists the task lifecycle into:
 
-- `python3 plugins/devflow/scripts/open_console.py`
-- `python3 plugins/devflow/scripts/open_console.py --print-path`
+- `request.md`
+- `plan.md`
+- `plan-history.md`
+- `dev.md`
+- `change-summary.md`
+- `review.md`
+- `summary.md`
+- `meta.json`
 
-推荐使用 Chrome / Edge / Safari，这些浏览器对目录导入支持更稳定。
+## Public Usage For Agents
 
-## 支持的能力
+### Installation
 
-- 重复导入多个本地 `DevFlowWorkspace`
-- 识别当前 workspace 的 `active-task.json`
-- 列出 `tasks/*/meta.json` 下的所有任务
-- 展示当前 task、task 状态、next action、review verdict、更新时间
-- 查看 `request.md`、`plan.md`、`dev.md`、`change-summary.md`、`review.md`、`summary.md` 的摘要
-- 提供示例数据，方便在没有本地目录时先预览界面
+If the `devflow` plugin is not available yet, the agent should install it from the personal marketplace entry rather than asking the user to run low-level scripts.
 
-## 导入说明
+The current install model is:
 
-点击页面上的“导入 Workspace”后，可以选择：
+- personal marketplace file: `~/.agents/plugins/marketplace.json`
+- plugin source path in that file: `plugins/devflow`
 
-- 仓库根目录，只要其中包含 `DevFlowWorkspace/`
-- 直接选择 `DevFlowWorkspace/` 目录
+The plugin source stays in this repository, while Codex discovers it through the personal marketplace.
 
-每次导入一个目录；如需同时查看多个 workspace，重复导入即可。
+### Public Entry Point
 
-页面会读取以下结构：
+The only public interface is:
+
+- `devflow`
+
+Agents should:
+
+- use `devflow` as the front door
+- avoid invoking internal skills directly
+- avoid telling the user to run helper scripts for normal workflow usage
+
+Internal skills exist only for DevFlow orchestration:
+
+- `devflow-plan-internal`
+- `devflow-dev-internal`
+- `devflow-review-internal`
+
+### Supported User Intents
+
+DevFlow is designed around explicit actions:
+
+- `start`
+- `update-plan`
+- `approve-plan`
+- `dev`
+- `review`
+- `done`
+- `resume`
+
+Example user requests an agent should translate into DevFlow usage:
+
+- "Use DevFlow to start a task for this refactor."
+- "Use DevFlow to update the current plan with these changes."
+- "Approve the current DevFlow plan."
+- "Use DevFlow to continue development."
+- "Use DevFlow to review the current task."
+- "Use DevFlow to finish the task."
+- "Resume the active DevFlow task."
+
+### Agent Behavior Expectations
+
+When using DevFlow, an agent should:
+
+- start with `devflow`, not with internal helper files
+- keep the user in the workflow instead of bypassing it
+- require explicit `approve-plan` before `dev`
+- require explicit `done` before considering the task complete
+- treat `review pass` as "ready to finish", not "already finished"
+- use `resume` when task context needs to be restored
+
+## Workflow Model
+
+The target DevFlow state machine is:
 
 ```text
-DevFlowWorkspace/
-├── active-task.json
-└── tasks/
-    └── TASK-xxx/
-        ├── meta.json
-        ├── request.md
-        ├── plan.md
-        ├── dev.md
-        ├── change-summary.md
-        ├── review.md
-        └── summary.md
+draft
+-> planning
+-> plan_approved
+-> developing
+-> reviewing
+-> developing
+-> done
 ```
 
-其中只有 `active-task.json` 和 `tasks/*/meta.json` 是强依赖；其余文档缺失时仍可正常显示，只是不展示对应摘要。
+Key rules:
 
-## 文件说明
+- `dev` is not allowed before `approve-plan`
+- `review` does not modify code
+- `review pass` means the task is ready to complete, not completed
+- only explicit `done` clears `active-task.json` and finishes the task
+- the planning subagent is always named `Planner`
+- the review subagent is always named `Reviewer`
 
-- [plugins/devflow/assets/console/index.html](/Users/webbergao/work/src/DevFlow/plugins/devflow/assets/console/index.html)：插件内的页面入口
-- [plugins/devflow/assets/console/styles.css](/Users/webbergao/work/src/DevFlow/plugins/devflow/assets/console/styles.css)：视觉风格、响应式布局和状态样式
-- [plugins/devflow/assets/console/app.js](/Users/webbergao/work/src/DevFlow/plugins/devflow/assets/console/app.js)：workspace 导入、任务解析和 UI 渲染逻辑
-- [plugins/devflow/scripts/open_console.py](/Users/webbergao/work/src/DevFlow/plugins/devflow/scripts/open_console.py)：解析插件内 console 入口并可直接调用默认浏览器打开
+## Repository Layout
 
-## 最小验证
+```text
+.
+├── AGENTS.md
+├── README.md
+├── DevFlowWorkspace/
+│   ├── active-task.json
+│   └── tasks/
+└── plugins/
+    └── devflow/
+        ├── .codex-plugin/plugin.json
+        ├── assets/console/
+        ├── scripts/
+        └── skills/
+```
 
-- `node --check plugins/devflow/assets/console/app.js`
-- `python3 plugins/devflow/scripts/open_console.py --print-path`
+### Important Paths
 
-这个检查只覆盖 JavaScript 语法。目录导入和页面交互需要在浏览器中手动验证。
+- [plugins/devflow/.codex-plugin/plugin.json](plugins/devflow/.codex-plugin/plugin.json)
+  plugin manifest
+- [plugins/devflow/skills/devflow/SKILL.md](plugins/devflow/skills/devflow/SKILL.md)
+  public DevFlow entrypoint
+- [plugins/devflow/skills/devflow-plan-internal/SKILL.md](plugins/devflow/skills/devflow-plan-internal/SKILL.md)
+  internal Planner skill
+- [plugins/devflow/skills/devflow-review-internal/SKILL.md](plugins/devflow/skills/devflow-review-internal/SKILL.md)
+  internal Reviewer skill
+- [plugins/devflow/assets/console/index.html](plugins/devflow/assets/console/index.html)
+  static workspace console
+
+## Workspace Contract
+
+Each task directory follows this structure:
+
+```text
+DevFlowWorkspace/tasks/TASK-xxx/
+├── meta.json
+├── request.md
+├── plan.md
+├── plan-history.md
+├── dev.md
+├── change-summary.md
+├── review.md
+└── summary.md
+```
+
+- `meta.json` is the single source of truth for task state
+- the Markdown files are recovery context and stage artifacts
+
+## Engineering Notes
+
+DevFlow includes helper scripts under `plugins/devflow/scripts/`, but those scripts are implementation details, not the preferred user-facing workflow.
+
+Use the scripts when:
+
+- developing or debugging DevFlow itself
+- validating the file protocol
+- testing state transitions and workspace generation
+
+Do not use the scripts as the primary usage instructions for end users or agents. The intended public path is still `devflow`.
+
+## Current Boundary
+
+Already implemented:
+
+- plugin manifest
+- skill definitions and role constraints
+- workspace file protocol
+- state machine helper scripts
+- static console page
+
+Not fully implemented yet:
+
+- the main orchestrator that wires `Planner` / `Reviewer` to real `spawn_agent` and `resume_agent` calls
+- end-to-end automated execution of the full `plan / dev / review / done` lifecycle inside Codex
+- runtime management for reusing a live task-scoped `Planner` session across multiple plan iterations
+
+At this stage, the repository is an engineering skeleton and runtime file protocol for DevFlow, not a complete orchestrator.
