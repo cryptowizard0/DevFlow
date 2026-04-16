@@ -35,17 +35,24 @@ def run_git(repo_root: Path, *args: str) -> str:
     return completed.stdout.strip() or "(no output)"
 
 
+def resolve_repo_root(meta: dict[str, object], repo_root_arg: str | None) -> Path:
+    worktree_path_value = meta.get("worktree_path")
+    if worktree_path_value:
+        worktree_path = Path(str(worktree_path_value)).expanduser().resolve()
+        if worktree_path.exists():
+            return worktree_path
+
+    if repo_root_arg:
+        return Path(repo_root_arg).expanduser().resolve()
+
+    raise SystemExit("Missing usable task worktree_path and --repo-root fallback.")
+
+
 def main() -> int:
     args = parse_args()
     task_dir = Path(args.task_dir).resolve()
     meta = read_json(task_dir / "meta.json")
-    repo_root = None
-    if meta.get("worktree_path"):
-        repo_root = Path(meta["worktree_path"]).resolve()
-    elif args.repo_root:
-        repo_root = Path(args.repo_root).resolve()
-    else:
-        raise SystemExit("Missing task worktree_path and --repo-root fallback.")
+    repo_root = resolve_repo_root(meta, args.repo_root)
 
     dev_log = read_text(task_dir / "dev.md").strip() or "No development notes recorded yet."
     status_short = run_git(repo_root, "status", "--short")
@@ -58,7 +65,7 @@ def main() -> int:
             "",
             "## Task Worktree",
             "",
-            f"- Path: `{meta.get('worktree_path') or repo_root}`",
+            f"- Path: `{repo_root}`",
             f"- Branch: `{meta.get('worktree_branch') or 'n/a'}`",
             f"- Base Ref: `{meta.get('worktree_base_ref') or 'n/a'}`",
             "",
