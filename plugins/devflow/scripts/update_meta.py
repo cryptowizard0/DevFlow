@@ -13,13 +13,20 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from devflow_lib import clear_active_task, load_active_task, load_meta, now_iso, save_active_task, write_json
+from devflow_lib import (
+    load_meta,
+    now_iso,
+    sync_workspace_state,
+    write_global_summary,
+    write_json,
+    write_task_summary,
+)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Update DevFlow meta.json.")
     parser.add_argument("--workspace", required=True, help="Path to DevFlowWorkspace")
-    parser.add_argument("--task-id", help="Task ID. Defaults to active task.")
+    parser.add_argument("--task-id", help="Task ID. Defaults to the focus task.")
     parser.add_argument(
         "--transition",
         choices=[
@@ -115,6 +122,7 @@ def main() -> int:
     args = parse_args()
     workspace = Path(args.workspace).resolve()
     meta_path, meta = load_meta(workspace, args.task_id)
+    task_id = meta.get("task_id")
 
     if args.transition:
         apply_transition(meta, args.transition)
@@ -130,14 +138,11 @@ def main() -> int:
 
     meta["updated_at"] = now_iso()
     write_json(meta_path, meta)
-
-    active = load_active_task(workspace)
-    if active.get("task_id") == meta.get("task_id"):
-        if meta.get("status") == "done":
-            clear_active_task(workspace)
-        else:
-            active["status"] = meta.get("status")
-            save_active_task(workspace, active)
+    preferred_focus_task_id = None if meta.get("status") == "done" else task_id
+    sync_workspace_state(workspace, preferred_focus_task_id=preferred_focus_task_id)
+    write_task_summary(meta_path.parent)
+    write_global_summary(workspace, touched_task_id=task_id)
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
 
     print(json.dumps({"updated": True, "meta_path": str(meta_path), "meta": meta}, ensure_ascii=False, indent=2))
     return 0

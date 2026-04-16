@@ -12,12 +12,13 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from devflow_lib import ensure_workspace, evaluate_gate, load_active_task, load_meta
+from devflow_lib import ensure_workspace, evaluate_gate, load_meta, resolve_task_id
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate whether a DevFlow action is allowed.")
     parser.add_argument("--workspace", required=True, help="Path to DevFlowWorkspace")
+    parser.add_argument("--task-id", help="Target task ID. Defaults to the focus task.")
     parser.add_argument("--action", required=True, choices=["start", "update-plan", "approve-plan", "dev", "review", "done", "resume"], help="Action to validate")
     return parser.parse_args()
 
@@ -26,14 +27,20 @@ def main() -> int:
     args = parse_args()
     workspace = Path(args.workspace).resolve()
     ensure_workspace(workspace)
-    active = load_active_task(workspace)
+
+    if args.action == "start":
+        result = evaluate_gate("start", None, None)
+        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+        return 0
+
+    task_id = resolve_task_id(workspace, args.task_id)
     meta = None
-    if active.get("task_id"):
+    if task_id:
         try:
-            _, meta = load_meta(workspace, active.get("task_id"))
+            _, meta = load_meta(workspace, task_id)
         except FileNotFoundError:
             meta = None
-    result = evaluate_gate(args.action, active, meta)
+    result = evaluate_gate(args.action, meta, task_id)
     print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
     return 0 if result.allowed else 1
 

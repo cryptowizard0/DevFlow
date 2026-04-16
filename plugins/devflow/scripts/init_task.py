@@ -12,7 +12,19 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from devflow_lib import clear_active_task, create_task_files, ensure_workspace, init_meta, load_active_task, next_task_id, save_active_task, task_dir_for_id, write_json
+from devflow_lib import (
+    create_task_files,
+    create_task_worktree,
+    ensure_workspace,
+    init_meta,
+    next_task_id,
+    repo_root_for_workspace,
+    sync_workspace_state,
+    task_dir_for_id,
+    write_global_summary,
+    write_json,
+    write_task_summary,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -28,31 +40,40 @@ def main() -> int:
     workspace = Path(args.workspace).resolve()
     ensure_workspace(workspace)
 
-    active = load_active_task(workspace)
-    if active.get("task_id") and active.get("status") not in {None, "done"}:
-        print(json.dumps({"created": False, "reason": "Another active task already exists.", "active_task": active}, ensure_ascii=False, indent=2))
-        return 1
-
-    if active.get("status") == "done":
-        clear_active_task(workspace)
-
     task_id = next_task_id(workspace)
     task_dir = task_dir_for_id(workspace, task_id)
     task_dir.mkdir(parents=True, exist_ok=False)
 
     create_task_files(task_dir, args.title, args.request, task_id)
-    meta = init_meta(task_id, args.title)
-    write_json(task_dir / "meta.json", meta)
-    save_active_task(
-        workspace,
-        {
-            "task_id": task_id,
-            "title": args.title,
-            "task_dir": str(task_dir),
-            "status": meta["status"],
-        },
+    repo_root = repo_root_for_workspace(workspace)
+    worktree_path, worktree_branch, worktree_base_ref = create_task_worktree(repo_root, task_id)
+    meta = init_meta(
+        task_id,
+        args.title,
+        str(worktree_path),
+        worktree_branch,
+        worktree_base_ref,
     )
-    print(json.dumps({"created": True, "task_id": task_id, "task_dir": str(task_dir), "meta": meta}, ensure_ascii=False, indent=2))
+    write_json(task_dir / "meta.json", meta)
+    sync_workspace_state(workspace, preferred_focus_task_id=task_id)
+    write_task_summary(task_dir)
+    write_global_summary(workspace, touched_task_id=task_id)
+    meta = json.loads((task_dir / "meta.json").read_text(encoding="utf-8"))
+    print(
+        json.dumps(
+            {
+                "created": True,
+                "task_id": task_id,
+                "task_dir": str(task_dir),
+                "worktree_path": str(worktree_path),
+                "worktree_branch": worktree_branch,
+                "worktree_base_ref": worktree_base_ref,
+                "meta": meta,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
     return 0
 
 

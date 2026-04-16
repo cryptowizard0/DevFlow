@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate change-summary.md from the repo diff and task dev log."""
+"""Generate change-summary.md from the task worktree diff and task dev log."""
 
 from __future__ import annotations
 
@@ -12,13 +12,13 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from devflow_lib import read_text, write_text
+from devflow_lib import read_json, read_text, write_text
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate change-summary.md for a DevFlow task.")
     parser.add_argument("--task-dir", required=True, help="Task directory")
-    parser.add_argument("--repo-root", required=True, help="Repository root to inspect")
+    parser.add_argument("--repo-root", help="Repository root to inspect when task worktree is unavailable")
     return parser.parse_args()
 
 
@@ -38,7 +38,15 @@ def run_git(repo_root: Path, *args: str) -> str:
 def main() -> int:
     args = parse_args()
     task_dir = Path(args.task_dir).resolve()
-    repo_root = Path(args.repo_root).resolve()
+    meta = read_json(task_dir / "meta.json")
+    repo_root = None
+    if meta.get("worktree_path"):
+        repo_root = Path(meta["worktree_path"]).resolve()
+    elif args.repo_root:
+        repo_root = Path(args.repo_root).resolve()
+    else:
+        raise SystemExit("Missing task worktree_path and --repo-root fallback.")
+
     dev_log = read_text(task_dir / "dev.md").strip() or "No development notes recorded yet."
     status_short = run_git(repo_root, "status", "--short")
     diff_stat = run_git(repo_root, "diff", "--stat")
@@ -47,6 +55,12 @@ def main() -> int:
     content = "\n".join(
         [
             "# Change Summary",
+            "",
+            "## Task Worktree",
+            "",
+            f"- Path: `{meta.get('worktree_path') or repo_root}`",
+            f"- Branch: `{meta.get('worktree_branch') or 'n/a'}`",
+            f"- Base Ref: `{meta.get('worktree_base_ref') or 'n/a'}`",
             "",
             "## Working Tree",
             "",

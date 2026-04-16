@@ -14,7 +14,7 @@ const reviewVerdictLabels = {
 };
 
 const artifactOrder = [
-  ["summary.md", "Summary"],
+  ["summary.md", "Task Summary"],
   ["request.md", "Request"],
   ["plan.md", "Plan"],
   ["dev.md", "Dev Log"],
@@ -114,6 +114,14 @@ function compactText(value, maxLength = 220) {
   return `${text.slice(0, maxLength).trim()}…`;
 }
 
+function removeMarkdownHeading(value) {
+  return String(value || "")
+    .replace(/^#.*$/gm, "")
+    .replace(/^[-*]\s+/gm, "")
+    .replace(/^\d+\.\s+/gm, "")
+    .trim();
+}
+
 function countStatuses(tasks) {
   const counts = {};
 
@@ -125,7 +133,7 @@ function countStatuses(tasks) {
   return counts;
 }
 
-function sortTasks(tasks, activeTaskId) {
+function sortTasks(tasks, focusTaskId) {
   const statusRank = {
     developing: 0,
     reviewing: 1,
@@ -136,8 +144,14 @@ function sortTasks(tasks, activeTaskId) {
   };
 
   return [...tasks].sort((left, right) => {
-    const leftActive = left.taskId === activeTaskId ? 1 : 0;
-    const rightActive = right.taskId === activeTaskId ? 1 : 0;
+    const leftFocus = left.taskId === focusTaskId ? 1 : 0;
+    const rightFocus = right.taskId === focusTaskId ? 1 : 0;
+    if (leftFocus !== rightFocus) {
+      return rightFocus - leftFocus;
+    }
+
+    const leftActive = left.isActive ? 1 : 0;
+    const rightActive = right.isActive ? 1 : 0;
     if (leftActive !== rightActive) {
       return rightActive - leftActive;
     }
@@ -158,20 +172,64 @@ function sortTasks(tasks, activeTaskId) {
   });
 }
 
-function createTask(meta, docs, activeTaskId) {
+function normalizeActiveIndex(activeTasks, active) {
+  if (activeTasks && Array.isArray(activeTasks.tasks)) {
+    return {
+      focus_task_id: activeTasks.focus_task_id || null,
+      tasks: activeTasks.tasks,
+    };
+  }
+
+  if (active && active.task_id) {
+    return {
+      focus_task_id: active.task_id,
+      tasks: [
+        {
+          task_id: active.task_id,
+          title: active.title || null,
+          task_dir: active.task_dir || null,
+          status: active.status || null,
+          is_blocked: false,
+          worktree_path: null,
+          updated_at: null,
+        },
+      ],
+    };
+  }
+
+  return {
+    focus_task_id: null,
+    tasks: [],
+  };
+}
+
+function defaultGlobalSummary() {
+  return {
+    updated_at: null,
+    focus_task_id: null,
+    active_task_count: 0,
+    done_task_count: 0,
+    tasks: [],
+  };
+}
+
+function createTask(meta, docs, focusTaskId, activeTaskIds) {
   return {
     taskId: meta.task_id || createId("task"),
     meta,
     docs,
-    isActive: meta.task_id === activeTaskId,
+    isFocus: meta.task_id === focusTaskId,
+    isActive: activeTaskIds.has(meta.task_id),
   };
 }
 
 function buildWorkspace(workspaceInputData) {
-  const activeTaskId = workspaceInputData.active?.task_id || null;
+  const activeIndex = normalizeActiveIndex(workspaceInputData.activeTasks, workspaceInputData.active);
+  const focusTaskId = activeIndex.focus_task_id || null;
+  const activeTaskIds = new Set(activeIndex.tasks.map((task) => task.task_id));
   const tasks = sortTasks(
-    workspaceInputData.tasks.map((task) => createTask(task.meta, task.docs, activeTaskId)),
-    activeTaskId
+    workspaceInputData.tasks.map((task) => createTask(task.meta, task.docs, focusTaskId, activeTaskIds)),
+    focusTaskId
   );
   const counts = countStatuses(tasks);
   const lastUpdated = tasks.reduce((latest, task) => {
@@ -184,11 +242,13 @@ function buildWorkspace(workspaceInputData) {
     sourceLabel: workspaceInputData.sourceLabel,
     sourceType: workspaceInputData.sourceType || "imported",
     description: workspaceInputData.description || "",
-    activeTaskId,
-    activeStatus: workspaceInputData.active?.status || null,
+    focusTaskId,
+    activeCount: activeIndex.tasks.length,
+    activeIndex,
     tasks,
     counts,
     lastUpdated,
+    globalSummary: workspaceInputData.globalSummary || defaultGlobalSummary(),
   };
 }
 
@@ -224,7 +284,7 @@ function syncSelection() {
 
   const taskStillExists = workspace.tasks.some((task) => task.taskId === state.selectedTaskId);
   if (!taskStillExists) {
-    state.selectedTaskId = workspace.activeTaskId || workspace.tasks[0]?.taskId || null;
+    state.selectedTaskId = workspace.focusTaskId || workspace.tasks[0]?.taskId || null;
   }
 }
 
@@ -240,7 +300,7 @@ function addWorkspace(workspace) {
   }
 
   state.selectedWorkspaceId = workspace.id;
-  state.selectedTaskId = workspace.activeTaskId || workspace.tasks[0]?.taskId || null;
+  state.selectedTaskId = workspace.focusTaskId || workspace.tasks[0]?.taskId || null;
   syncSelection();
   render();
 }
@@ -252,19 +312,39 @@ function clearAllWorkspaces() {
   render();
 }
 
-function removeMarkdownHeading(value) {
-  return String(value || "")
-    .replace(/^#.*$/gm, "")
-    .replace(/^[-*]\s+/gm, "")
-    .trim();
+function activeTaskEntry(workspace) {
+  return workspace.tasks.find((task) => task.taskId === workspace.focusTaskId) || null;
+}
+
+function globalTaskSummary(workspace, taskId) {
+  return (
+    workspace.globalSummary.tasks.find((task) => task.task_id === taskId) || {
+      overview: "暂无全局摘要。",
+      key_structures: [],
+      key_config: [],
+      pitfalls: [],
+      cross_task_notes: [],
+    }
+  );
+}
+
+function renderBulletList(items, emptyText) {
+  if (!items?.length) {
+    return `<p class="artifact-content">${escapeHtml(emptyText)}</p>`;
+  }
+
+  return `
+    <div class="summary-chip-row">
+      ${items
+        .map((item) => `<span class="mini-badge" data-tone="neutral">${escapeHtml(compactText(item, 120))}</span>`)
+        .join("")}
+    </div>
+  `;
 }
 
 function renderMetrics() {
   const totalTasks = state.workspaces.reduce((sum, workspace) => sum + workspace.tasks.length, 0);
-  const activeTasks = state.workspaces.reduce(
-    (sum, workspace) => sum + (workspace.activeTaskId ? 1 : 0),
-    0
-  );
+  const activeTasks = state.workspaces.reduce((sum, workspace) => sum + workspace.activeCount, 0);
   const blockedTasks = state.workspaces.reduce(
     (sum, workspace) => sum + (workspace.counts.blocked || 0),
     0
@@ -291,14 +371,14 @@ function renderMetrics() {
       note: "所有已导入 workspace 中识别到的任务数量。",
     },
     {
-      label: "进行中",
-      value: inFlightTasks,
-      note: "状态为 planning / approved / developing / reviewing 的任务。",
+      label: "活跃 Task",
+      value: activeTasks,
+      note: "来自 active-tasks.json 的未完成任务索引总数。",
     },
     {
-      label: "当前活动 Task",
-      value: activeTasks,
-      note: blockedTasks ? `其中 ${blockedTasks} 个处于 blocked。` : "当前没有 blocked task。",
+      label: "进行中 / 阻塞",
+      value: `${inFlightTasks} / ${blockedTasks}`,
+      note: "便于快速识别需要协调和排障的任务。",
     },
   ];
 
@@ -323,7 +403,7 @@ function renderWorkspaceList() {
       <div class="empty-state">
         还没有导入任何 workspace。
         <br />
-        点击“导入 Workspace”读取本地目录，或先用“载入示例”看看界面结构。
+        点击“导入 Workspace”读取本地目录，或先用“载入示例”看看多 task 视图。
       </div>
     `;
     return;
@@ -332,16 +412,21 @@ function renderWorkspaceList() {
   workspaceListElement.innerHTML = state.workspaces
     .map((workspace) => {
       const isSelected = workspace.id === state.selectedWorkspaceId;
-      const activeTask = workspace.tasks.find((task) => task.taskId === workspace.activeTaskId) || null;
+      const focusTask = activeTaskEntry(workspace);
       const chips = [
-        workspace.activeTaskId
-          ? `<span class="mini-badge" data-tone="accent">当前任务 ${escapeHtml(workspace.activeTaskId)}</span>`
-          : `<span class="mini-badge" data-tone="neutral">无当前任务</span>`,
-        `<span class="mini-badge" data-tone="neutral">${escapeHtml(workspace.tasks.length)} tasks</span>`,
+        workspace.focusTaskId
+          ? `<span class="mini-badge" data-tone="accent">焦点 ${escapeHtml(workspace.focusTaskId)}</span>`
+          : `<span class="mini-badge" data-tone="neutral">无焦点 task</span>`,
+        `<span class="mini-badge" data-tone="neutral">${escapeHtml(workspace.activeCount)} active</span>`,
         workspace.counts.blocked
           ? `<span class="mini-badge" data-tone="danger">${escapeHtml(
               workspace.counts.blocked
             )} blocked</span>`
+          : "",
+        workspace.globalSummary.updated_at
+          ? `<span class="mini-badge" data-tone="warn">summary ${escapeHtml(
+              formatDate(workspace.globalSummary.updated_at)
+            )}</span>`
           : "",
       ]
         .filter(Boolean)
@@ -357,16 +442,16 @@ function renderWorkspaceList() {
               <div class="workspace-path">${escapeHtml(workspace.sourceLabel)}</div>
             </div>
             <span class="status-badge" data-tone="${escapeHtml(
-              activeTask ? statusTone(activeTask) : "idle"
+              focusTask ? statusTone(focusTask) : "idle"
             )}">${escapeHtml(
-              activeTask ? formatStatus(activeTask.meta.status, activeTask.meta.is_blocked) : "空闲"
+              focusTask ? formatStatus(focusTask.meta.status, focusTask.meta.is_blocked) : "空闲"
             )}</span>
           </div>
           <p class="workspace-description">${escapeHtml(
             workspace.description ||
-              (activeTask
-                ? `当前 task: ${activeTask.meta.title || activeTask.taskId}`
-                : "这个 workspace 目前没有 active task。")
+              (focusTask
+                ? `焦点 task: ${focusTask.meta.title || focusTask.taskId}`
+                : "这个 workspace 当前没有 focus task。")
           )}</p>
           <div class="workspace-meta">${chips}</div>
         </article>
@@ -382,18 +467,20 @@ function renderWorkspaceSummary() {
     tasksHeaderMetaElement.innerHTML = "";
     workspaceSummaryElement.innerHTML = `
       <div class="empty-state">
-        请选择一个 workspace。导入后这里会显示该 workspace 的当前 task、状态概览和更新时间。
+        请选择一个 workspace。导入后这里会显示 focus task、多 task 状态和全局 summary 摘要。
       </div>
     `;
     return;
   }
 
-  const activeTask = workspace.tasks.find((task) => task.taskId === workspace.activeTaskId) || null;
+  const focusTask = activeTaskEntry(workspace);
   const latestLabel = workspace.lastUpdated ? formatDate(workspace.lastUpdated) : "n/a";
+  const globalSummary = workspace.globalSummary;
 
   tasksHeaderMetaElement.innerHTML = `
     <span class="count-badge">${escapeHtml(workspace.sourceType === "sample" ? "示例数据" : "本地目录")}</span>
-    <span>${escapeHtml(workspace.tasks.length)} tasks</span>
+    <span>${escapeHtml(workspace.activeCount)} active</span>
+    <span>焦点 ${escapeHtml(workspace.focusTaskId || "n/a")}</span>
     <span>最近更新 ${escapeHtml(latestLabel)}</span>
   `;
 
@@ -437,57 +524,56 @@ function renderWorkspaceSummary() {
             <div class="workspace-path">${escapeHtml(workspace.sourceLabel)}</div>
           </div>
           <span class="status-badge" data-tone="${escapeHtml(
-            activeTask ? statusTone(activeTask) : "idle"
+            focusTask ? statusTone(focusTask) : "idle"
           )}">${escapeHtml(
-            activeTask ? formatStatus(activeTask.meta.status, activeTask.meta.is_blocked) : "无当前任务"
+            focusTask ? formatStatus(focusTask.meta.status, focusTask.meta.is_blocked) : "无焦点 task"
           )}</span>
         </div>
         <p class="summary-copy">${escapeHtml(
-          activeTask
-            ? `${activeTask.taskId} · ${activeTask.meta.title || "未命名任务"}`
-            : "当前 active-task.json 中没有指向活动任务。"
+          focusTask
+            ? `${focusTask.taskId} · ${focusTask.meta.title || "未命名任务"}`
+            : "当前 active-tasks.json 没有记录 focus task。"
         )}</p>
         <div class="summary-chip-row">${chips || '<span class="mini-badge" data-tone="neutral">暂无状态分布</span>'}</div>
       </article>
 
       <article class="summary-card">
-        <div class="summary-stats">
-          <div class="summary-stat">
-            <strong>${escapeHtml(workspace.tasks.length)}</strong>
-            <span>任务总数</span>
+        <div class="summary-card-header">
+          <div>
+            <h3 class="summary-title">Global Summary</h3>
+            <div class="workspace-path">${escapeHtml(formatDate(globalSummary.updated_at))}</div>
           </div>
-          <div class="summary-stat">
-            <strong>${escapeHtml(workspace.activeTaskId || "0")}</strong>
-            <span>当前任务 ID</span>
-          </div>
-          <div class="summary-stat">
-            <strong>${escapeHtml(workspace.counts.done || 0)}</strong>
-            <span>已完成</span>
-          </div>
-          <div class="summary-stat">
-            <strong>${escapeHtml(workspace.counts.blocked || 0)}</strong>
-            <span>阻塞中</span>
-          </div>
+          <span class="count-badge">${escapeHtml(globalSummary.active_task_count || 0)} active</span>
+        </div>
+        <p class="summary-copy">${escapeHtml(
+          compactText(
+            focusTask ? globalTaskSummary(workspace, focusTask.taskId).overview : "暂无焦点 task 对应的全局摘要。",
+            180
+          )
+        )}</p>
+        <div class="summary-chip-row">
+          <span class="mini-badge" data-tone="accent">focus ${escapeHtml(globalSummary.focus_task_id || "n/a")}</span>
+          <span class="mini-badge" data-tone="neutral">${escapeHtml(globalSummary.done_task_count || 0)} done</span>
         </div>
       </article>
     </div>
 
     <div class="info-grid">
       <div class="info-cell">
-        <span class="info-label">Current Task</span>
-        <span class="info-value">${escapeHtml(activeTask?.meta.title || activeTask?.taskId || "n/a")}</span>
+        <span class="info-label">Focus Task</span>
+        <span class="info-value">${escapeHtml(focusTask?.meta.title || focusTask?.taskId || "n/a")}</span>
       </div>
       <div class="info-cell">
-        <span class="info-label">Current Step</span>
-        <span class="info-value">${escapeHtml(activeTask?.meta.current_step || "n/a")}</span>
+        <span class="info-label">Stage Status</span>
+        <span class="info-value">${escapeHtml(focusTask ? formatStatus(focusTask.meta.status, focusTask.meta.is_blocked) : "n/a")}</span>
       </div>
       <div class="info-cell">
         <span class="info-label">Next Action</span>
-        <span class="info-value">${escapeHtml(activeTask?.meta.next_action || "n/a")}</span>
+        <span class="info-value">${escapeHtml(focusTask?.meta.next_action || "n/a")}</span>
       </div>
       <div class="info-cell">
-        <span class="info-label">Last Updated</span>
-        <span class="info-value">${escapeHtml(latestLabel)}</span>
+        <span class="info-label">Global Summary Updated</span>
+        <span class="info-value">${escapeHtml(formatDate(globalSummary.updated_at))}</span>
       </div>
     </div>
   `;
@@ -539,8 +625,13 @@ function renderTaskList() {
             <p class="task-subline">${escapeHtml(requestSnippet)}</p>
             <div class="task-meta">
               ${
-                task.isActive
-                  ? '<span class="mini-badge" data-tone="accent">当前 task</span>'
+                task.isFocus
+                  ? '<span class="mini-badge" data-tone="accent">焦点 task</span>'
+                  : ""
+              }
+              ${
+                task.isActive && !task.isFocus
+                  ? '<span class="mini-badge" data-tone="warn">并行 active</span>'
                   : ""
               }
               <span class="mini-badge" data-tone="neutral">plan v${escapeHtml(
@@ -550,8 +641,8 @@ function renderTaskList() {
                 task.meta.review_round ?? 0
               )}</span>
               ${
-                task.meta.next_action
-                  ? `<span class="mini-badge" data-tone="warn">${escapeHtml(task.meta.next_action)}</span>`
+                task.meta.worktree_branch
+                  ? `<span class="mini-badge" data-tone="neutral">${escapeHtml(task.meta.worktree_branch)}</span>`
                   : ""
               }
               <span class="mini-badge" data-tone="${
@@ -572,14 +663,16 @@ function renderTaskDetail() {
   if (!workspace || !task) {
     taskDetailElement.innerHTML = `
       <div class="empty-state">
-        选择一个 task 后，这里会显示 <code>meta.json</code> 关键字段和主要文档摘要。
+        选择一个 task 后，这里会显示 <code>meta.json</code>、worktree 和 global summary 里的关键信息。
       </div>
     `;
     return;
   }
 
+  const globalTask = globalTaskSummary(workspace, task.taskId);
   const detailChips = [
-    task.isActive ? '<span class="mini-badge" data-tone="accent">当前 task</span>' : "",
+    task.isFocus ? '<span class="mini-badge" data-tone="accent">焦点 task</span>' : "",
+    task.isActive && !task.isFocus ? '<span class="mini-badge" data-tone="warn">并行 active</span>' : "",
     task.meta.next_action
       ? `<span class="mini-badge" data-tone="warn">next: ${escapeHtml(task.meta.next_action)}</span>`
       : "",
@@ -633,38 +726,52 @@ function renderTaskDetail() {
 
     <div class="info-grid">
       <div class="info-cell">
+        <span class="info-label">Stage Status</span>
+        <span class="info-value">${escapeHtml(task.meta.status || "n/a")}</span>
+      </div>
+      <div class="info-cell">
         <span class="info-label">Current Step</span>
         <span class="info-value">${escapeHtml(task.meta.current_step || "n/a")}</span>
       </div>
       <div class="info-cell">
-        <span class="info-label">Last Completed</span>
-        <span class="info-value">${escapeHtml(task.meta.last_completed_step || "n/a")}</span>
+        <span class="info-label">Next Action</span>
+        <span class="info-value">${escapeHtml(task.meta.next_action || "n/a")}</span>
       </div>
       <div class="info-cell">
-        <span class="info-label">Plan Version</span>
-        <span class="info-value">${escapeHtml(task.meta.plan_version ?? "n/a")}</span>
+        <span class="info-label">Blocked</span>
+        <span class="info-value">${escapeHtml(task.meta.is_blocked ? task.meta.block_reason || "yes" : "no")}</span>
       </div>
       <div class="info-cell">
-        <span class="info-label">Review Round</span>
-        <span class="info-value">${escapeHtml(task.meta.review_round ?? "n/a")}</span>
+        <span class="info-label">Worktree Path</span>
+        <span class="info-value">${escapeHtml(task.meta.worktree_path || "n/a")}</span>
       </div>
       <div class="info-cell">
-        <span class="info-label">Created At</span>
-        <span class="info-value">${escapeHtml(formatDate(task.meta.created_at))}</span>
+        <span class="info-label">Worktree Branch</span>
+        <span class="info-value">${escapeHtml(task.meta.worktree_branch || "n/a")}</span>
       </div>
       <div class="info-cell">
-        <span class="info-label">Updated At</span>
-        <span class="info-value">${escapeHtml(formatDate(task.meta.updated_at))}</span>
+        <span class="info-label">Worktree Base Ref</span>
+        <span class="info-value">${escapeHtml(task.meta.worktree_base_ref || "n/a")}</span>
       </div>
       <div class="info-cell">
-        <span class="info-label">Approved At</span>
-        <span class="info-value">${escapeHtml(formatDate(task.meta.approved_at))}</span>
-      </div>
-      <div class="info-cell">
-        <span class="info-label">Completed At</span>
-        <span class="info-value">${escapeHtml(formatDate(task.meta.completed_at))}</span>
+        <span class="info-label">Global Summary Sync</span>
+        <span class="info-value">${escapeHtml(formatDate(task.meta.global_summary_updated_at))}</span>
       </div>
     </div>
+
+    <article class="artifact-card">
+      <p class="artifact-label">GLOBAL KNOWLEDGE</p>
+      <h3 class="artifact-title">Shared Notes For Other Tasks</h3>
+      <p class="artifact-content">${escapeHtml(globalTask.overview || "暂无全局摘要。")}</p>
+      <p class="artifact-label">Structures / Interfaces / File Contracts</p>
+      ${renderBulletList(globalTask.key_structures, "暂无明确记录。")}
+      <p class="artifact-label">Config / Environment</p>
+      ${renderBulletList(globalTask.key_config, "暂无明确记录。")}
+      <p class="artifact-label">Pitfalls / Bugs / Mistakes</p>
+      ${renderBulletList(globalTask.pitfalls, "暂无明确记录。")}
+      <p class="artifact-label">Cross-Task Notes</p>
+      ${renderBulletList(globalTask.cross_task_notes, "暂无明确记录。")}
+    </article>
 
     ${artifacts || '<div class="empty-state">这个 task 还没有可展示的文档摘要。</div>'}
   `;
@@ -743,13 +850,20 @@ function deriveWorkspaceName(prefix) {
 async function parseImportedWorkspace(files) {
   const prefix = findWorkspaceRootPrefix(files);
   const fileMap = collectWorkspaceFiles(files, prefix);
+  const activeTasksFile = fileMap.get("active-tasks.json");
   const activeTaskFile = fileMap.get("active-task.json");
 
-  if (!activeTaskFile) {
-    throw new Error("所选目录缺少 active-task.json。");
+  if (!activeTasksFile && !activeTaskFile) {
+    throw new Error("所选目录缺少 active-tasks.json 或 active-task.json。");
   }
 
-  const active = await readJsonFile(activeTaskFile, "active-task.json");
+  const activeTasks = activeTasksFile
+    ? await readJsonFile(activeTasksFile, "active-tasks.json")
+    : null;
+  const active = activeTaskFile ? await readJsonFile(activeTaskFile, "active-task.json") : null;
+  const globalSummary = fileMap.get("global-summary.json")
+    ? await readJsonFile(fileMap.get("global-summary.json"), "global-summary.json")
+    : defaultGlobalSummary();
   const metaEntries = [...fileMap.entries()].filter(([path]) => /^tasks\/[^/]+\/meta\.json$/.test(path));
 
   if (!metaEntries.length) {
@@ -781,7 +895,9 @@ async function parseImportedWorkspace(files) {
     sourceLabel: prefix,
     sourceType: "imported",
     description: "从本地目录导入的 DevFlowWorkspace。",
+    activeTasks,
     active,
+    globalSummary,
     tasks,
   });
 }
@@ -808,12 +924,51 @@ function createExampleWorkspaces() {
     name: "alpha-repo",
     sourceLabel: "alpha-repo/DevFlowWorkspace",
     sourceType: "sample",
-    description: "一个包含规划中、开发中和已完成任务的示例 workspace。",
-    active: {
-      task_id: "TASK-008",
-      title: "实现 DevFlow dashboard",
-      task_dir: "tasks/TASK-008",
-      status: "developing",
+    description: "示例：两个并行 active task，各自工作在独立 worktree。",
+    activeTasks: {
+      focus_task_id: "TASK-008",
+      tasks: [
+        {
+          task_id: "TASK-008",
+          title: "实现 DevFlow dashboard",
+          task_dir: "tasks/TASK-008",
+          status: "developing",
+          is_blocked: false,
+          worktree_path: "/Users/demo/.codex/worktrees/devflow/alpha-repo/TASK-008",
+          updated_at: "2026-04-14T10:20:00+08:00",
+        },
+        {
+          task_id: "TASK-007",
+          title: "设计统一 task 卡片",
+          task_dir: "tasks/TASK-007",
+          status: "planning",
+          is_blocked: false,
+          worktree_path: "/Users/demo/.codex/worktrees/devflow/alpha-repo/TASK-007",
+          updated_at: "2026-04-14T08:30:00+08:00",
+        },
+      ],
+    },
+    globalSummary: {
+      updated_at: "2026-04-14T10:24:00+08:00",
+      focus_task_id: "TASK-008",
+      active_task_count: 2,
+      done_task_count: 1,
+      tasks: [
+        {
+          task_id: "TASK-008",
+          title: "实现 DevFlow dashboard",
+          status: "developing",
+          next_action: "review",
+          updated_at: "2026-04-14T10:24:00+08:00",
+          worktree_path: "/Users/demo/.codex/worktrees/devflow/alpha-repo/TASK-008",
+          worktree_branch: "codex/devflow/TASK-008",
+          overview: "多 workspace 管理台已具备导入、焦点 task 和任务详情展示能力。",
+          key_structures: ["`active-tasks.json` 是多 task 索引真相。", "`active-task.json` 仅作为焦点 task 兼容投影。"],
+          key_config: ["前端需要同时读取 `global-summary.json` 和 `tasks/*/meta.json`。"],
+          pitfalls: ["不要再把 active task 数量等同于 1。"],
+          cross_task_notes: ["新的 task 视图要优先展示 focus task，再展示其他并行 task。"],
+        },
+      ],
     },
     tasks: [
       {
@@ -826,13 +981,17 @@ function createExampleWorkspaces() {
           plan_version: 3,
           review_round: 1,
           current_step: "build browser-side workspace loader",
-          last_completed_step: "confirm data model",
+          last_completed_step: "confirm multi-task data model",
           next_action: "review",
           is_blocked: false,
           block_reason: null,
           approved_at: "2026-04-14T08:40:00+08:00",
           last_review_verdict: "changes_requested",
           completed_at: null,
+          worktree_path: "/Users/demo/.codex/worktrees/devflow/alpha-repo/TASK-008",
+          worktree_branch: "codex/devflow/TASK-008",
+          worktree_base_ref: "main",
+          global_summary_updated_at: "2026-04-14T10:24:00+08:00",
         },
         docs: {
           "request.md":
@@ -842,11 +1001,11 @@ function createExampleWorkspaces() {
           "dev.md":
             "# Dev\n\n已完成 dashboard 骨架、多栏布局和 workspace 解析逻辑。",
           "change-summary.md":
-            "# Change Summary\n\n替换旧 demo 页面，新增 workspace 导入、任务列表和详情区。",
+            "# Change Summary\n\n当前只展示 TASK-008 worktree 的差异，不再读取主仓库 working tree。",
           "review.md":
             "# Review\n\n上一轮评审要求补充多 workspace 体验与状态总览。",
           "summary.md":
-            "# Summary\n\n正在开发 DevFlow 管理界面，当前主要集中在浏览器侧的数据导入和展示。",
+            "# Summary\n\n这个 task 的重点是浏览器侧的 workspace 解析和焦点 task 展示。",
         },
       },
       {
@@ -866,13 +1025,17 @@ function createExampleWorkspaces() {
           approved_at: null,
           last_review_verdict: null,
           completed_at: null,
+          worktree_path: "/Users/demo/.codex/worktrees/devflow/alpha-repo/TASK-007",
+          worktree_branch: "codex/devflow/TASK-007",
+          worktree_base_ref: "main",
+          global_summary_updated_at: "2026-04-14T08:34:00+08:00",
         },
         docs: {
           "request.md":
             "# Request\n\n整理任务卡片展示字段，统一状态、时间和当前步骤的排布。",
           "plan.md":
             "# Plan\n\n对比现有 meta.json 字段，给卡片设计固定信息层级。",
-          "summary.md": "# Summary\n\n仍在规划阶段，等待 plan 批准。",
+          "summary.md": "# Summary\n\n规划中，尚未进入开发。",
         },
       },
       {
@@ -892,6 +1055,10 @@ function createExampleWorkspaces() {
           approved_at: "2026-04-13T19:00:00+08:00",
           last_review_verdict: "pass",
           completed_at: "2026-04-13T22:30:00+08:00",
+          worktree_path: "/Users/demo/.codex/worktrees/devflow/alpha-repo/TASK-006",
+          worktree_branch: "codex/devflow/TASK-006",
+          worktree_base_ref: "main",
+          global_summary_updated_at: "2026-04-13T22:32:00+08:00",
         },
         docs: {
           "summary.md": "# Summary\n\n旧的游戏 demo 已经被新的 DevFlow 控制台取代。",
@@ -906,12 +1073,60 @@ function createExampleWorkspaces() {
     name: "release-train",
     sourceLabel: "release-train/DevFlowWorkspace",
     sourceType: "sample",
-    description: "一个包含 blocked、reviewing 和 approved 状态的示例 workspace。",
-    active: {
-      task_id: "TASK-014",
-      title: "评审插件市场同步逻辑",
-      task_dir: "tasks/TASK-014",
-      status: "reviewing",
+    description: "示例：reviewing、blocked 和 plan_approved 并行存在。",
+    activeTasks: {
+      focus_task_id: "TASK-014",
+      tasks: [
+        {
+          task_id: "TASK-014",
+          title: "评审插件市场同步逻辑",
+          task_dir: "tasks/TASK-014",
+          status: "reviewing",
+          is_blocked: false,
+          worktree_path: "/Users/demo/.codex/worktrees/devflow/release-train/TASK-014",
+          updated_at: "2026-04-14T09:40:00+08:00",
+        },
+        {
+          task_id: "TASK-013",
+          title: "修复 workspace 解析异常",
+          task_dir: "tasks/TASK-013",
+          status: "developing",
+          is_blocked: true,
+          worktree_path: "/Users/demo/.codex/worktrees/devflow/release-train/TASK-013",
+          updated_at: "2026-04-14T08:55:00+08:00",
+        },
+        {
+          task_id: "TASK-012",
+          title: "整理 workspace 总览指标",
+          task_dir: "tasks/TASK-012",
+          status: "plan_approved",
+          is_blocked: false,
+          worktree_path: "/Users/demo/.codex/worktrees/devflow/release-train/TASK-012",
+          updated_at: "2026-04-14T05:15:00+08:00",
+        },
+      ],
+    },
+    globalSummary: {
+      updated_at: "2026-04-14T09:42:00+08:00",
+      focus_task_id: "TASK-014",
+      active_task_count: 3,
+      done_task_count: 0,
+      tasks: [
+        {
+          task_id: "TASK-014",
+          title: "评审插件市场同步逻辑",
+          status: "reviewing",
+          next_action: "await_review_result",
+          updated_at: "2026-04-14T09:42:00+08:00",
+          worktree_path: "/Users/demo/.codex/worktrees/devflow/release-train/TASK-014",
+          worktree_branch: "codex/devflow/TASK-014",
+          overview: "评审阶段只读，不应改写任何代码或状态文件。",
+          key_structures: ["`review.md` 记录 verdict，`meta.json` 只通过 helper 脚本转移。"],
+          key_config: ["review 阶段仍需读取同 task worktree 的 diff。"],
+          pitfalls: ["review pass 不是 done。"],
+          cross_task_notes: ["其他 task 可以继续 dev，不应被全局单锁阻塞。"],
+        },
+      ],
     },
     tasks: [
       {
@@ -931,6 +1146,10 @@ function createExampleWorkspaces() {
           approved_at: "2026-04-14T07:12:00+08:00",
           last_review_verdict: "pass",
           completed_at: null,
+          worktree_path: "/Users/demo/.codex/worktrees/devflow/release-train/TASK-014",
+          worktree_branch: "codex/devflow/TASK-014",
+          worktree_base_ref: "main",
+          global_summary_updated_at: "2026-04-14T09:42:00+08:00",
         },
         docs: {
           "request.md":
@@ -958,6 +1177,10 @@ function createExampleWorkspaces() {
           approved_at: "2026-04-14T06:10:00+08:00",
           last_review_verdict: "blocked",
           completed_at: null,
+          worktree_path: "/Users/demo/.codex/worktrees/devflow/release-train/TASK-013",
+          worktree_branch: "codex/devflow/TASK-013",
+          worktree_base_ref: "main",
+          global_summary_updated_at: "2026-04-14T08:56:00+08:00",
         },
         docs: {
           "request.md": "# Request\n\n某些 workspace 无法读出 meta.json，需要明确错误提示。",
@@ -979,11 +1202,16 @@ function createExampleWorkspaces() {
           next_action: "dev",
           is_blocked: false,
           block_reason: null,
-          approved_at: "2026-04-14T05:15:00+08:00",
+          approved_at: "2026-04-14T04:45:00+08:00",
           last_review_verdict: null,
           completed_at: null,
+          worktree_path: "/Users/demo/.codex/worktrees/devflow/release-train/TASK-012",
+          worktree_branch: "codex/devflow/TASK-012",
+          worktree_base_ref: "main",
+          global_summary_updated_at: "2026-04-14T05:16:00+08:00",
         },
         docs: {
+          "request.md": "# Request\n\n做 workspace 总览指标，区分 focus task、active task 和 done task。",
           "plan.md": "# Plan\n\n统计 workspace 数量、active task 数量、进行中任务和 blocked task。",
           "summary.md": "# Summary\n\n计划已批准，等待开发。",
         },
@@ -994,12 +1222,6 @@ function createExampleWorkspaces() {
   return [exampleA, exampleB];
 }
 
-function loadExampleWorkspaces() {
-  for (const workspace of createExampleWorkspaces()) {
-    addWorkspace(workspace);
-  }
-}
-
 workspaceListElement.addEventListener("click", (event) => {
   const card = event.target.closest("[data-workspace-id]");
   if (!card) {
@@ -1007,7 +1229,8 @@ workspaceListElement.addEventListener("click", (event) => {
   }
 
   state.selectedWorkspaceId = card.dataset.workspaceId;
-  state.selectedTaskId = null;
+  const workspace = selectedWorkspace();
+  state.selectedTaskId = workspace?.focusTaskId || workspace?.tasks[0]?.taskId || null;
   render();
 });
 
@@ -1028,7 +1251,10 @@ importWorkspaceButton.addEventListener("click", () => {
 workspaceInput.addEventListener("change", handleWorkspaceImport);
 
 loadExampleButton.addEventListener("click", () => {
-  loadExampleWorkspaces();
+  clearAllWorkspaces();
+  for (const workspace of createExampleWorkspaces()) {
+    addWorkspace(workspace);
+  }
 });
 
 clearWorkspacesButton.addEventListener("click", () => {

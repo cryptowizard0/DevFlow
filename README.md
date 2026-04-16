@@ -1,6 +1,6 @@
 # DevFlow
 
-DevFlow is a Codex plugin for complex engineering tasks. It runs work through an explicit `plan -> dev -> review -> done` lifecycle and persists state, plans, development notes, and review output in `DevFlowWorkspace/`.
+DevFlow is a Codex plugin for complex engineering tasks. It runs work through an explicit `plan -> dev -> review -> done` lifecycle and persists task state, worktree assignment, summaries, and review output in `DevFlowWorkspace/`.
 
 This repository is intended to be agent-friendly: the public interface is the `devflow` skill, and agents should use that entrypoint rather than operating the underlying scripts directly.
 
@@ -11,10 +11,16 @@ Use DevFlow when the task is large enough that it benefits from:
 - an explicit planning phase before code changes
 - tracked development progress across multiple iterations
 - an independent review phase before completion
+- multiple unfinished tasks progressing in parallel
 - resumable task state backed by repository files
+- shared cross-task knowledge so new tasks can avoid rediscovering the same structures and bugs
 
-DevFlow persists the task lifecycle into:
+DevFlow persists task lifecycle and collaboration context into:
 
+- `active-task.json`
+- `active-tasks.json`
+- `global-summary.json`
+- `global-summary.md`
 - `request.md`
 - `plan.md`
 - `plan-history.md`
@@ -24,11 +30,13 @@ DevFlow persists the task lifecycle into:
 - `summary.md`
 - `meta.json`
 
+Each task also owns an isolated git worktree.
+
 ## Public Usage For Agents
 
 ### Installation
 
-If the `devflow` plugin is not available yet, the agent should install it from the personal marketplace entry rather than asking the user to run low-level scripts.
+If `devflow` is not available yet, the agent should install the plugin from the local marketplace entry instead of asking the user to work with implementation files.
 
 The current install model is:
 
@@ -39,13 +47,14 @@ The plugin source stays in this repository, while Codex discovers it through the
 
 ### Public Entry Point
 
-The only public interface is:
+The only public entrypoint is:
 
 - `devflow`
 
 Agents should:
 
 - use `devflow` as the front door
+- use explicit workflow actions through `devflow`
 - avoid invoking internal skills directly
 - avoid telling the user to run helper scripts for normal workflow usage
 
@@ -54,6 +63,21 @@ Internal skills exist only for DevFlow orchestration:
 - `devflow-plan-internal`
 - `devflow-dev-internal`
 - `devflow-review-internal`
+
+### Recommended Usage Pattern
+
+Agents should translate the user request into a DevFlow action and stay inside the workflow until the task is explicitly finished.
+
+The normal lifecycle is:
+
+1. `start`
+2. `update-plan` as needed
+3. `approve-plan`
+4. `dev`
+5. `review`
+6. `dev` or `done`, depending on the review result
+
+Use `resume` whenever the focus task or the parallel task set needs to be restored from workspace state.
 
 ### Supported User Intents
 
@@ -67,15 +91,29 @@ DevFlow is designed around explicit actions:
 - `done`
 - `resume`
 
+Every action may target a specific task. If the task is omitted, DevFlow uses the current focus task.
+
 Example user requests an agent should translate into DevFlow usage:
 
 - "Use DevFlow to start a task for this refactor."
 - "Use DevFlow to update the current plan with these changes."
 - "Approve the current DevFlow plan."
-- "Use DevFlow to continue development."
+- "Use DevFlow to continue development on TASK-014."
 - "Use DevFlow to review the current task."
-- "Use DevFlow to finish the task."
+- "Use DevFlow to finish TASK-008."
 - "Resume the active DevFlow task."
+
+### What The Agent Should Say
+
+Good public usage stays at the plugin level. Typical phrasing should look like:
+
+- "Use DevFlow to start a tracked task for this feature."
+- "Use DevFlow to update the current plan."
+- "Use DevFlow to continue the active task."
+- "Use DevFlow to review the current implementation."
+- "Use DevFlow to complete the task."
+
+Avoid exposing internal file operations or script commands in normal usage guidance.
 
 ### Agent Behavior Expectations
 
@@ -87,10 +125,12 @@ When using DevFlow, an agent should:
 - require explicit `done` before considering the task complete
 - treat `review pass` as "ready to finish", not "already finished"
 - use `resume` when task context needs to be restored
+- treat `DevFlowWorkspace/` and `meta.json` as implementation details unless the user is asking about internals
+- read `global-summary.md` before planning or development work on a new task
 
 ## Workflow Model
 
-The target DevFlow state machine is:
+The DevFlow stage state machine remains:
 
 ```text
 draft
@@ -104,10 +144,15 @@ draft
 
 Key rules:
 
+- `status` is stage status only
+- `planner_agent_status` and `reviewer_agent_status` are runtime/session state only
+- `current_step` is descriptive text, not a stage enum
+- `next_action` defines what may happen next
+- `is_blocked` / `block_reason` express blocking state without changing the stage enum
 - `dev` is not allowed before `approve-plan`
 - `review` does not modify code
 - `review pass` means the task is ready to complete, not completed
-- only explicit `done` clears `active-task.json` and finishes the task
+- only explicit `done` removes a task from `active-tasks.json`
 - the planning subagent is always named `Planner`
 - the review subagent is always named `Reviewer`
 
@@ -119,6 +164,9 @@ Key rules:
 ├── README.md
 ├── DevFlowWorkspace/
 │   ├── active-task.json
+│   ├── active-tasks.json
+│   ├── global-summary.json
+│   ├── global-summary.md
 │   └── tasks/
 └── plugins/
     └── devflow/
@@ -157,8 +205,38 @@ DevFlowWorkspace/tasks/TASK-xxx/
 └── summary.md
 ```
 
-- `meta.json` is the single source of truth for task state
-- the Markdown files are recovery context and stage artifacts
+Workspace-level files:
+
+- `active-tasks.json` is the source of truth for unfinished task indexing and focus-task selection
+- `active-task.json` is a compatibility projection for the focus task
+- `global-summary.json` is the structured cross-task summary source
+- `global-summary.md` is the human-readable view of the same shared summary
+- `meta.json` is the single source of truth for an individual task's stage state
+- `summary.md` is the task-local handoff and recovery snapshot for one task only
+- `global-summary.md` is the cross-task shared summary for the whole workspace
+- markdown files are recovery context, stage artifacts, and shareable knowledge
+
+In practice:
+
+- read `tasks/TASK-xxx/summary.md` when you need the latest state and lessons for that specific task
+- read `DevFlowWorkspace/global-summary.md` when you need shared context from other tasks
+
+Each task `meta.json` now also records:
+
+- `worktree_path`
+- `worktree_branch`
+- `worktree_base_ref`
+- `global_summary_updated_at`
+
+Each task gets an isolated worktree by default:
+
+- root resolution:
+  - `DEVFLOW_WORKTREE_ROOT/<repo-name>/<task-id>/` when explicitly set
+  - `CODEX_HOME/worktrees/devflow/<repo-name>/<task-id>/` when `CODEX_HOME` is set
+  - `~/.codex/worktrees/devflow/<repo-name>/<task-id>/` when `~/.codex` already exists
+  - otherwise `~/.local/share/devflow/worktrees/<repo-name>/<task-id>/`
+- branch: `codex/devflow/<task-id>`
+- base ref: current branch name when available, otherwise `HEAD`
 
 ## Engineering Notes
 
@@ -168,9 +246,35 @@ Use the scripts when:
 
 - developing or debugging DevFlow itself
 - validating the file protocol
-- testing state transitions and workspace generation
+- testing state transitions, worktree generation, and workspace summaries
 
 Do not use the scripts as the primary usage instructions for end users or agents. The intended public path is still `devflow`.
+
+### Important scripts
+
+- `init_task.py`
+- `check_gate.py`
+- `update_meta.py`
+- `append_plan_history.py`
+- `generate_change_summary.py`
+- `generate_summary.py`
+- `generate_global_summary.py`
+- `render_resume.py`
+- `open_console.py`
+
+## Bundled Console
+
+DevFlow ships a zero-dependency static browser console for manual inspection of one or more workspaces.
+
+The console can:
+
+- import a local `DevFlowWorkspace/`
+- read `active-tasks.json` and fall back to `active-task.json`
+- show the focus task and other parallel active tasks
+- display worktree path and branch data per task
+- render `global-summary.json` alongside task artifacts
+
+Open it directly from [plugins/devflow/assets/console/index.html](plugins/devflow/assets/console/index.html) or resolve it via `plugins/devflow/scripts/open_console.py`.
 
 ## Current Boundary
 
@@ -178,8 +282,10 @@ Already implemented:
 
 - plugin manifest
 - skill definitions and role constraints
-- workspace file protocol
+- multi-task workspace file protocol
+- isolated per-task worktree assignment helpers
 - state machine helper scripts
+- task summary and global summary generators
 - static console page
 
 Not fully implemented yet:
