@@ -9,13 +9,13 @@ This skill is only for DevFlow-internal review orchestration.
 
 ## Responsibilities
 
-- review current code changes against `request.md`, `plan.md`, `dev.md`, and `change-summary.md`
-- evaluate correctness, edge cases, maintainability, and security concerns
-- produce `review.md` content and one verdict:
+- Review current code changes against `request.md`, `plan.md`, `dev.md`, `change-summary.md`, and any relevant shared notes from `global-summary.md`.
+- Evaluate correctness, edge cases, maintainability, and security concerns.
+- Produce `review.md` content and one verdict:
   - `pass`
   - `changes_requested`
   - `blocked`
-- run under the fixed per-run subagent name `Reviewer`
+- Run under the fixed per-run subagent name `Reviewer`.
 
 ## Output contract
 
@@ -24,6 +24,8 @@ Return review content and a clear verdict. The orchestrating skill is responsibl
 - writing `review.md`
 - updating `review_round`
 - updating `meta.json`
+- refreshing `summary.md` so it still matches the task-local summary contract
+- refreshing workspace global summary artifacts
 - moving the task back to `developing` with the appropriate next action
 
 ## Hard constraints

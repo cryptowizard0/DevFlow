@@ -12,7 +12,7 @@ DevFlow is intended to run tasks through an explicit lifecycle:
 plan -> dev -> review -> done
 ```
 
-and persist state, planning decisions, development notes, and review results in `DevFlowWorkspace/`.
+and persist state, planning decisions, development notes, review results, and cross-task knowledge in `DevFlowWorkspace/`.
 
 ## Repository Layout
 
@@ -42,8 +42,12 @@ This is an established repository convention and should be preserved.
 
 ## Source Of Truth
 
-- `DevFlowWorkspace/tasks/TASK-xxx/meta.json` is the single source of truth for task state
-- the Markdown files are audit logs, recovery context, and stage artifacts; they do not override state
+- `DevFlowWorkspace/tasks/TASK-xxx/meta.json` is the single source of truth for task stage state
+- `DevFlowWorkspace/active-tasks.json` is the source of truth for unfinished task indexing and focus-task selection
+- `DevFlowWorkspace/active-task.json` is a compatibility projection for the current focus task; it is not the primary source of truth
+- `DevFlowWorkspace/global-summary.json` is the source of truth for shared cross-task summary data
+- `DevFlowWorkspace/tasks/TASK-xxx/summary.md` is the task-local handoff and recovery summary for one task
+- markdown files are audit logs, recovery context, stage artifacts, and human-readable views; they do not override state
 - plugin behavior and documentation should stay aligned across:
   - `plugins/devflow/.codex-plugin/plugin.json`
   - `plugins/devflow/skills/`
@@ -54,23 +58,38 @@ This is an established repository convention and should be preserved.
 
 `DevFlowWorkspace/` is a repository asset, not a disposable temp directory. Unless the user explicitly asks for it, do not delete it, reset it, or ignore it.
 
-Each task directory should follow this file contract:
+Each workspace now follows this contract:
 
 ```text
-DevFlowWorkspace/tasks/TASK-xxx/
-├── meta.json
-├── request.md
-├── plan.md
-├── plan-history.md
-├── dev.md
-├── change-summary.md
-├── review.md
-└── summary.md
+DevFlowWorkspace/
+├── active-task.json
+├── active-tasks.json
+├── global-summary.json
+├── global-summary.md
+└── tasks/
+    └── TASK-xxx/
+        ├── meta.json
+        ├── request.md
+        ├── plan.md
+        ├── plan-history.md
+        ├── dev.md
+        ├── change-summary.md
+        ├── review.md
+        └── summary.md
 ```
+
+Each task also owns an isolated git worktree, recorded in `meta.json`:
+
+- default root resolution:
+  - `DEVFLOW_WORKTREE_ROOT/<repo-name>/<task-id>/` when explicitly set
+  - `CODEX_HOME/worktrees/devflow/<repo-name>/<task-id>/` when `CODEX_HOME` is set
+  - `~/.codex/worktrees/devflow/<repo-name>/<task-id>/` when `~/.codex` already exists
+  - otherwise `~/.local/share/devflow/worktrees/<repo-name>/<task-id>/`
+- default branch: `codex/devflow/<task-id>`
 
 ### Status machine
 
-Allowed core states:
+Allowed core stage states:
 
 ```text
 draft
@@ -84,10 +103,16 @@ draft
 
 Key rules:
 
+- `status` only represents the workflow stage
+- `planner_agent_status` and `reviewer_agent_status` only represent runtime/session state
+- `current_step` is descriptive free text; it is not a stage enum
+- `next_action` controls what may happen next
+- `is_blocked` and `block_reason` represent blocking state without changing the stage enum
 - `dev` must not run before `approve-plan`
 - `review` must not modify code
 - `review pass` means the task is ready to complete, not completed
-- only explicit `done` finishes the task and clears `active-task.json`
+- only explicit `done` finishes a task and removes it from `active-tasks.json`
+- when a focused task is completed, the focus should move to another unfinished task if one exists; otherwise it should clear
 
 ### Agent naming
 
@@ -95,6 +120,19 @@ Key rules:
 - the review subagent is always named `Reviewer`
 - `Planner` is task-scoped and may be reused across plan iterations
 - `Reviewer` is created per review round and does not need to be reused
+
+### Cross-task knowledge
+
+- every stage-ending update should refresh both the task `summary.md` and workspace `global-summary.json` / `global-summary.md`
+- new planning or development work should read `global-summary.md` first
+- `summary.md` under a task directory is local to that task; it is not the shared workspace summary
+- shared summary data should emphasize:
+  - task overview
+  - stage status and next action
+  - key data structures / interfaces / file contracts
+  - key config / environment requirements
+  - pitfalls, bugs, and mistakes to avoid
+  - notes that matter to other tasks
 
 ## Editing Rules
 
@@ -120,6 +158,7 @@ Important scripts include:
 - `append_plan_history.py`
 - `generate_change_summary.py`
 - `generate_summary.py`
+- `generate_global_summary.py`
 - `render_resume.py`
 - `open_console.py`
 
@@ -128,6 +167,7 @@ When modifying these scripts:
 - keep the CLI interface as stable as possible
 - when adding an action or transition, update both `README.md` and the related skill text
 - treat state updates for a single task as serialized operations; avoid concurrent writes to the same `meta.json`
+- do not let one task inspect or mutate another task's worktree by accident
 
 ## Marketplace / Installation
 
@@ -143,8 +183,10 @@ This repository already implements:
 
 - the plugin manifest
 - skill definitions
-- the workspace file protocol
+- the multi-task workspace file protocol
+- per-task worktree assignment helpers
 - state machine helper scripts
+- workspace and global summary generators
 - the static console page
 
 This repository does not yet fully implement:
