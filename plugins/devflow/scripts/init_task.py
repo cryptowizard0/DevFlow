@@ -19,10 +19,13 @@ from devflow_lib import (
     create_task_worktree,
     ensure_workspace,
     init_meta,
+    load_project_meta,
     next_task_id,
+    normalize_string_list,
     repo_root_for_workspace,
     sync_workspace_state,
     task_dir_for_id,
+    validate_task_architecture_binding,
     write_global_summary,
     write_json,
     write_task_summary,
@@ -58,6 +61,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workspace", required=True, help="Path to DevFlowWorkspace")
     parser.add_argument("--title", required=True, help="Task title")
     parser.add_argument("--request", required=True, help="Initial user request text")
+    parser.add_argument("--project-id", help="Project ID. Defaults to the active project.")
+    parser.add_argument("--module-scope", action="append", default=[], help="Module ID in scope. May be repeated or comma-separated.")
+    parser.add_argument("--constraint-ref", action="append", default=[], help="Constraint ID that applies to this task. May be repeated or comma-separated.")
+    parser.add_argument("--exception-id", action="append", default=[], help="Approved exception ID bound to this task. May be repeated or comma-separated.")
     return parser.parse_args()
 
 
@@ -66,8 +73,31 @@ def main() -> int:
     workspace = Path(args.workspace).resolve()
     ensure_workspace(workspace)
     repo_root = repo_root_for_workspace(workspace)
+    _, project_meta = load_project_meta(workspace, args.project_id)
+    if project_meta.get("status") != "architecture_approved":
+        raise SystemExit("Cannot create a task plan before the project architecture is approved.")
+
+    module_scope = normalize_string_list(args.module_scope)
+    constraint_refs = normalize_string_list(args.constraint_ref)
+    exception_ids = normalize_string_list(args.exception_id)
 
     task_id = next_task_id(workspace)
+    validation_errors = validate_task_architecture_binding(
+        workspace,
+        {
+            "project_id": str(project_meta["project_id"]),
+            "architecture_version": int(project_meta["architecture_version"]),
+            "module_scope": module_scope,
+            "constraint_refs": constraint_refs,
+            "exception_ids": exception_ids,
+            "architecture_compliance_status": "pending",
+        },
+        require_project_approved=True,
+        require_open_modules=True,
+    )
+    if validation_errors:
+        raise SystemExit("; ".join(validation_errors))
+
     task_dir = task_dir_for_id(workspace, task_id)
     task_dir.mkdir(parents=True, exist_ok=False)
     worktree_path: Path | None = None
@@ -79,6 +109,11 @@ def main() -> int:
         meta = init_meta(
             task_id,
             args.title,
+            str(project_meta["project_id"]),
+            int(project_meta["architecture_version"]),
+            module_scope,
+            constraint_refs,
+            exception_ids,
             str(worktree_path),
             worktree_branch,
             worktree_base_ref,

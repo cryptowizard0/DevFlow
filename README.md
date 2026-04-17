@@ -1,89 +1,28 @@
 # DevFlow
 
-DevFlow is a Codex plugin for complex engineering tasks. It runs work through an explicit `plan -> dev -> review -> done` lifecycle and persists task state, worktree assignment, summaries, and review output in `DevFlowWorkspace/`.
+DevFlow is a Codex plugin for architecture-first engineering work. It manages a project-scoped architecture baseline above the existing task-scoped `plan -> dev -> review -> done` lifecycle and persists both layers in `DevFlowWorkspace/`.
 
-This repository is intended to be agent-friendly: the public interface is the `devflow` skill, and agents should use that entrypoint rather than operating the underlying scripts directly.
+This repository is intended to be agent-friendly: the public interface is the `devflow` skill, and agents should use that entrypoint rather than operating helper scripts directly.
 
 ## What DevFlow Is For
 
-Use DevFlow when the task is large enough that it benefits from:
+Use DevFlow when the work benefits from:
 
-- an explicit planning phase before code changes
-- tracked development progress across multiple iterations
-- an independent review phase before completion
-- multiple unfinished tasks progressing in parallel
-- resumable task state backed by repository files
-- shared cross-task knowledge so new tasks can avoid rediscovering the same structures and bugs
+- a project-scoped architecture baseline before any task starts
+- explicit module boundaries, engineering standards, and implementation order
+- tracked task planning, development, and independent review
+- multiple unfinished tasks progressing in parallel under one architecture version
+- resumable project and task state backed by repository files
+- shared summaries so new work can reuse existing architecture and avoid known pitfalls
 
-DevFlow persists task lifecycle and collaboration context into:
+## Public Actions
 
-- `active-task.json`
-- `active-tasks.json`
-- `global-summary.json`
-- `global-summary.md`
-- `request.md`
-- `plan.md`
-- `plan-history.md`
-- `dev.md`
-- `change-summary.md`
-- `review.md`
-- `summary.md`
-- `meta.json`
+The public `devflow` entrypoint supports these actions:
 
-Each task also owns an isolated git worktree.
-
-## Public Usage For Agents
-
-### Installation
-
-If `devflow` is not available yet, the agent should install the plugin from the local marketplace entry instead of asking the user to work with implementation files.
-
-The current install model is:
-
-- personal marketplace file: `~/.agents/plugins/marketplace.json`
-- plugin source path in that file: `plugins/devflow`
-
-The plugin source stays in this repository, while Codex discovers it through the personal marketplace.
-
-### Public Entry Point
-
-The only public entrypoint is:
-
-- `devflow`
-
-Agents should:
-
-- use `devflow` as the front door
-- use explicit workflow actions through `devflow`
-- avoid invoking internal skills directly
-- avoid telling the user to run helper scripts for normal workflow usage
-
-Internal skills exist only for DevFlow orchestration:
-
-- `devflow-plan-internal`
-- `devflow-dev-internal`
-- `devflow-review-internal`
-
-### Recommended Usage Pattern
-
-Agents should translate the user request into a DevFlow action and stay inside the workflow until the task is explicitly finished.
-
-The normal lifecycle is:
-
-1. `start`
-2. `update-plan` as needed
-3. `approve-plan`
-4. `dev`
-5. `review`
-6. `dev` or `done`, depending on the review result
-
-Use `resume` whenever the focus task or the parallel task set needs to be restored from workspace state.
-
-### Supported User Intents
-
-DevFlow is designed around explicit actions:
-
-- `start`
+- `start-project`
+- `update-arch`
+- `approve-arch`
+- `start-plan`
 - `update-plan`
 - `approve-plan`
 - `dev`
@@ -91,46 +30,30 @@ DevFlow is designed around explicit actions:
 - `done`
 - `resume`
 
-Every action may target a specific task. If the task is omitted, DevFlow uses the current focus task.
+Normal flow:
 
-Example user requests an agent should translate into DevFlow usage:
+1. `start-project`
+2. `update-arch` as needed
+3. `approve-arch`
+4. `start-plan`
+5. `update-plan` as needed
+6. `approve-plan`
+7. `dev`
+8. `review`
+9. `dev` or `done`, depending on review output
 
-- "Use DevFlow to start a task for this refactor."
-- "Use DevFlow to update the current plan with these changes."
-- "Approve the current DevFlow plan."
-- "Use DevFlow to continue development on TASK-014."
-- "Use DevFlow to review the current task."
-- "Use DevFlow to finish TASK-008."
-- "Resume the active DevFlow task."
+There is no task without an approved architecture baseline. There is no development without referenced constraints.
 
-### What The Agent Should Say
+## Core Model
 
-Good public usage stays at the plugin level. Typical phrasing should look like:
+DevFlow separates project architecture from task delivery:
 
-- "Use DevFlow to start a tracked task for this feature."
-- "Use DevFlow to update the current plan."
-- "Use DevFlow to continue the active task."
-- "Use DevFlow to review the current implementation."
-- "Use DevFlow to complete the task."
+- `Architect`: project-scoped role. Owns architecture baseline, module map, standards, roadmap, constraints, and approved exceptions.
+- `Planner`: task-scoped role. Can only plan under an approved architecture baseline.
+- `Developer`: implements a task slice. Cannot modify architecture documents or invent new rules.
+- `Reviewer`: checks correctness and architecture compliance. Cannot approve an architecture deviation.
 
-Avoid exposing internal file operations or script commands in normal usage guidance.
-
-### Agent Behavior Expectations
-
-When using DevFlow, an agent should:
-
-- start with `devflow`, not with internal helper files
-- keep the user in the workflow instead of bypassing it
-- require explicit `approve-plan` before `dev`
-- require explicit `done` before considering the task complete
-- treat `review pass` as "ready to finish", not "already finished"
-- use `resume` when task context needs to be restored
-- treat `DevFlowWorkspace/` and `meta.json` as implementation details unless the user is asking about internals
-- read `global-summary.md` before planning or development work on a new task
-
-## Workflow Model
-
-The DevFlow stage state machine remains:
+Task stage state remains:
 
 ```text
 draft
@@ -142,116 +65,167 @@ draft
 -> done
 ```
 
-Key rules:
-
-- `status` is stage status only
-- `planner_agent_status` and `reviewer_agent_status` are runtime/session state only
-- `current_step` is descriptive text, not a stage enum
-- `next_action` defines what may happen next
-- `is_blocked` / `block_reason` express blocking state without changing the stage enum
-- `dev` is not allowed before `approve-plan`
-- `review` does not modify code
-- `review pass` means the task is ready to complete, not completed
-- only explicit `done` removes a task from `active-tasks.json`
-- the planning subagent is always named `Planner`
-- the review subagent is always named `Reviewer`
-
-## Repository Layout
+Project stage state is separate:
 
 ```text
-.
-├── AGENTS.md
-├── README.md
-├── DevFlowWorkspace/
-│   ├── active-task.json
-│   ├── active-tasks.json
-│   ├── global-summary.json
-│   ├── global-summary.md
-│   └── tasks/
-└── plugins/
-    └── devflow/
-        ├── .codex-plugin/plugin.json
-        ├── assets/console/
-        ├── scripts/
-        └── skills/
+architecting
+<-> architecture_approved
 ```
-
-### Important Paths
-
-- [plugins/devflow/.codex-plugin/plugin.json](plugins/devflow/.codex-plugin/plugin.json)
-  plugin manifest
-- [plugins/devflow/skills/devflow/SKILL.md](plugins/devflow/skills/devflow/SKILL.md)
-  public DevFlow entrypoint
-- [plugins/devflow/skills/devflow-plan-internal/SKILL.md](plugins/devflow/skills/devflow-plan-internal/SKILL.md)
-  internal Planner skill
-- [plugins/devflow/skills/devflow-review-internal/SKILL.md](plugins/devflow/skills/devflow-review-internal/SKILL.md)
-  internal Reviewer skill
-- [plugins/devflow/assets/console/index.html](plugins/devflow/assets/console/index.html)
-  static workspace console
 
 ## Workspace Contract
 
-Each task directory follows this structure:
-
 ```text
-DevFlowWorkspace/tasks/TASK-xxx/
-├── meta.json
-├── request.md
-├── plan.md
-├── plan-history.md
-├── dev.md
-├── change-summary.md
-├── review.md
-└── summary.md
+DevFlowWorkspace/
+├── active-project.json
+├── active-task.json
+├── active-tasks.json
+├── global-summary.json
+├── global-summary.md
+├── projects/
+│   └── PROJECT-001/
+│       ├── meta.json
+│       ├── request.md
+│       ├── architecture.md
+│       ├── module-map.md
+│       ├── standards.md
+│       ├── roadmap.md
+│       ├── constraints.json
+│       ├── architecture-history.md
+│       ├── summary.md
+│       └── adr/
+└── tasks/
+    └── TASK-xxx/
+        ├── meta.json
+        ├── request.md
+        ├── plan.md
+        ├── plan-history.md
+        ├── dev.md
+        ├── change-summary.md
+        ├── review.md
+        ├── architecture-change-request.md
+        └── summary.md
 ```
 
-Workspace-level files:
+Workspace-level source of truth:
 
-- `active-tasks.json` is the source of truth for unfinished task indexing and focus-task selection
-- `active-task.json` is a compatibility projection for the focus task
-- `global-summary.json` is the structured cross-task summary source
-- `global-summary.md` is the human-readable view of the same shared summary
-- `meta.json` is the single source of truth for an individual task's stage state
-- `summary.md` is the task-local handoff and recovery snapshot for one task only
-- `global-summary.md` is the cross-task shared summary for the whole workspace
-- markdown files are recovery context, stage artifacts, and shareable knowledge
+- `active-project.json`: active project projection
+- `active-tasks.json`: unfinished task index and focus-task selection
+- `active-task.json`: compatibility projection for the focus task
+- `global-summary.json`: structured workspace summary for the project and all tasks
+- `global-summary.md`: human-readable view of the same shared summary
 
-In practice:
+Project source of truth:
 
-- read `tasks/TASK-xxx/summary.md` when you need the latest state and lessons for that specific task
-- read `DevFlowWorkspace/global-summary.md` when you need shared context from other tasks
+- `projects/PROJECT-001/meta.json`: project state and architecture version
+- architecture markdown files: approved baseline and audit trail
+- `constraints.json`: machine-readable subset of approved architecture constraints used by gate, check, and prompt slicing logic
+- `adr/`: architecture decisions and approved exceptions
 
-Each task `meta.json` now also records:
+Task source of truth:
 
-- `worktree_path`
-- `worktree_branch`
-- `worktree_base_ref`
-- `global_summary_updated_at`
+- `tasks/TASK-xxx/meta.json`: task state, architecture binding, and compliance state
+- task markdown files: recovery context, stage artifacts, and review output
 
-Each task gets an isolated worktree by default:
+## Document Contracts
 
-- root resolution:
-  - `DEVFLOW_WORKTREE_ROOT/<repo-name>/<task-id>/` when explicitly set
-  - `CODEX_HOME/worktrees/devflow/<repo-name>/<task-id>/` when `CODEX_HOME` is set
-  - `~/.codex/worktrees/devflow/<repo-name>/<task-id>/` when `~/.codex` already exists
-  - otherwise `~/.local/share/devflow/worktrees/<repo-name>/<task-id>/`
-- branch: `codex/devflow/<task-id>`
-- base ref: current branch name when available, otherwise `HEAD`
+`Architect` owns these project-scoped documents:
 
-## Engineering Notes
+- `architecture.md`: overall system architecture design. It should cover the system description, tech stack, overall architecture, runtime flow and data flow, module split, cross-module relationships and constraints, schema and data structure design, project directory layout, and key design decisions.
+- `module-map.md`: detailed module design, module responsibilities, boundaries, dependency direction, and module IDs. This is the implementation-critical document for task execution and should be detailed enough to implement directly. It may stay as a top-level index and split detailed module specs into separate markdown files when one file becomes too large.
+- `standards.md`: code standards, testing requirements, error handling, logging, and interface contracts.
+- `roadmap.md`: complete development plan, including module implementation order and recommended task breakdown.
+- `constraints.json`: machine-readable subset of the approved architecture constraints for gates, checks, and prompt injection.
+- `adr/`: explicit architecture decisions and approved exceptions
 
-DevFlow includes helper scripts under `plugins/devflow/scripts/`, but those scripts are implementation details, not the preferred user-facing workflow.
+Downstream roles must treat those files as constraints:
 
-Use the scripts when:
+- `Planner` reads `architecture_version`, `module_scope`, `constraint_refs`, relevant ADRs, and roadmap entries
+- `plan.md` must contain:
+  - `Architecture Context`
+  - `Modules In Scope`
+  - `Constraints Checklist`
+  - `Required Exceptions`
+  - `Implementation Order`
+- `Developer` receives only the sliced architecture fragments relevant to the current `module_scope`
+- `Developer` must declare followed `constraint_refs`, referenced architecture docs, and used exceptions in `dev.md`
+- `review` only proceeds when `dev.md` contains a complete compliance declaration that matches the task architecture binding
+- `Reviewer` must return both:
+  - `implementation_verdict: pass | changes_requested | blocked`
+  - `architecture_verdict: compliant | deviation | needs_architect_decision`
 
-- developing or debugging DevFlow itself
-- validating the file protocol
-- testing state transitions, worktree generation, and workspace summaries
+## Metadata Contracts
 
-Do not use the scripts as the primary usage instructions for end users or agents. The intended public path is still `devflow`.
+Project `meta.json` fields:
 
-### Important scripts
+- `project_id`
+- `title`
+- `status`
+- `architecture_version`
+- `current_step`
+- `next_action`
+- `approved_at`
+- `approved_by`
+- `architect_agent_name`
+- `architect_agent_id`
+- `architect_agent_status`
+- `changed_modules`
+- `changed_constraint_refs`
+- `updated_at`
 
+Task `meta.json` fields extend the existing protocol with:
+
+- `project_id`
+- `architecture_version`
+- `module_scope`
+- `constraint_refs`
+- `exception_ids`
+- `architecture_compliance_status`
+
+`architecture_compliance_status` is one of:
+
+- `pending`
+- `compliant`
+- `deviation`
+- `needs_architect_decision`
+- `approved_exception`
+
+## Enforcement Rules
+
+- `start-project` is only allowed when the workspace does not yet have a project.
+- `approve-arch` requires a complete project document set plus a valid `constraints.json`.
+- `approve-arch` also requires a concrete `architecture-history.md` entry and at least one concrete ADR file under `adr/`.
+- `start-plan` is only allowed when the active project is `architecture_approved`.
+- `start-plan` requires a valid `module_scope` and `constraint_refs` that resolve against `constraints.json`.
+- `approve-plan` fails if any required plan section is missing or the architecture binding is incomplete.
+- `dev` fails if the task has no valid `constraint_refs`, or if architecture drift marked it as needing an architect decision.
+- `review` is read-only and must check architecture compliance in addition to correctness.
+- `review` fails if `dev.md` does not record a valid compliance declaration or references missing architecture docs.
+- `done` only succeeds after `last_review_verdict=pass` and `architecture_compliance_status` is `compliant` or `approved_exception`.
+- `update-arch` is the only architecture mutation entrypoint. Architecture change requests, roadmap changes, module boundary changes, and exception approvals all funnel through it.
+- semantic `update-arch` on an already approved project must be grounded in a task `architecture-change-request.md`.
+- When `update-arch` changes modules or constraints, impacted unfinished tasks are automatically blocked and marked `needs_architect_decision`.
+- `update_meta.py` and `update_project_meta.py` do not allow `--set/--clear` to overwrite file-backed stage, constraint, review, or architecture state.
+
+## Worktrees
+
+Each task owns an isolated git worktree:
+
+- `DEVFLOW_WORKTREE_ROOT/<repo-name>/<task-id>/` when explicitly set
+- `CODEX_HOME/worktrees/devflow/<repo-name>/<task-id>/` when `CODEX_HOME` is set
+- `~/.codex/worktrees/devflow/<repo-name>/<task-id>/` when `~/.codex` already exists
+- otherwise `~/.local/share/devflow/worktrees/<repo-name>/<task-id>/`
+
+Branch naming remains `codex/devflow/<task-id>`.
+
+## Script Helpers
+
+Implementation helpers live under `plugins/devflow/scripts/`:
+
+- `init_project.py`
+- `update_project_meta.py`
+- `generate_project_summary.py`
+- `append_architecture_history.py`
+- `migrate_legacy_workspace.py`
 - `init_task.py`
 - `check_gate.py`
 - `update_meta.py`
@@ -262,36 +236,55 @@ Do not use the scripts as the primary usage instructions for end users or agents
 - `render_resume.py`
 - `open_console.py`
 
-## Bundled Console
+These scripts are implementation details for DevFlow itself, not the preferred user-facing workflow.
 
-DevFlow ships a zero-dependency static browser console for manual inspection of one or more workspaces.
+## Skills
+
+Public entrypoint:
+
+- `devflow`
+
+Internal orchestration skills:
+
+- `devflow-architect-internal`
+- `devflow-plan-internal`
+- `devflow-dev-internal`
+- `devflow-review-internal`
+
+Fixed subagent names:
+
+- `Architect`: project-scoped and reusable across architecture iterations
+- `Planner`: task-scoped and reusable across plan iterations
+- `Reviewer`: per-review-run
+
+## Console
+
+DevFlow ships a zero-dependency static browser console for manual workspace inspection.
 
 The console can:
 
 - import a local `DevFlowWorkspace/`
-- read `active-tasks.json` and fall back to `active-task.json`
-- show the focus task and other parallel active tasks
-- display worktree path and branch data per task
+- show active project status and architecture version
+- show focus task and parallel active tasks
+- display task architecture bindings and compliance state
 - render `global-summary.json` alongside task artifacts
 
-Open it directly from [plugins/devflow/assets/console/index.html](plugins/devflow/assets/console/index.html) or resolve it via `plugins/devflow/scripts/open_console.py`.
+Open it directly from [plugins/devflow/assets/console/index.html](plugins/devflow/assets/console/index.html) or via `plugins/devflow/scripts/open_console.py`.
+
+## Migration
+
+Legacy workspaces without a project baseline are no longer valid for new task creation or development. Use `plugins/devflow/scripts/migrate_legacy_workspace.py` to scaffold `PROJECT-001`, then complete the architecture baseline and approve it before continuing work.
 
 ## Current Boundary
 
-Already implemented:
+This repository now implements:
 
-- plugin manifest
-- skill definitions and role constraints
-- multi-task workspace file protocol
-- isolated per-task worktree assignment helpers
-- state machine helper scripts
-- task summary and global summary generators
-- static console page
+- project-scoped architecture file protocol
+- task-scoped architecture inheritance fields
+- gate checks for architecture-first workflow actions
+- project and task summary generation
+- architecture drift blocking
+- static console updates for project/task state inspection
+- skill and manifest contracts for `Architect`, `Planner`, `Developer`, and `Reviewer`
 
-Not fully implemented yet:
-
-- the main orchestrator that wires `Planner` / `Reviewer` to real `spawn_agent` and `resume_agent` calls
-- end-to-end automated execution of the full `plan / dev / review / done` lifecycle inside Codex
-- runtime management for reusing a live task-scoped `Planner` session across multiple plan iterations
-
-At this stage, the repository is an engineering skeleton and runtime file protocol for DevFlow, not a complete orchestrator.
+This repository still does not implement a standalone Codex runtime orchestrator beyond the persisted protocol, skills, and helper scripts in this repo. The public workflow remains skill-driven.

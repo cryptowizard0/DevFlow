@@ -1,12 +1,12 @@
 {
   "name": "devflow",
-  "version": "0.1.0",
-  "description": "Structured plan-dev-review workflow for large development tasks with task state and markdown artifacts.",
+  "version": "0.2.0",
+  "description": "Architecture-first workflow for large development projects with project-scoped constraints, task plans, and markdown artifacts.",
   "skills": "./skills/",
   "interface": {
     "displayName": "DevFlow",
-    "shortDescription": "Run large development tasks through plan, dev, and review",
-    "longDescription": "Coordinate complex software tasks through an explicit plan, implementation, and review workflow with persisted task state and markdown artifacts.",
+    "shortDescription": "Run architecture-first projects through architect, plan, dev, and review",
+    "longDescription": "Coordinate complex software projects through an explicit architecture baseline, task planning, implementation, and review workflow with persisted project and task state.",
     "developerName": "webbergao",
     "category": "Coding",
     "capabilities": [
@@ -14,9 +14,9 @@
       "Write"
     ],
     "defaultPrompt": [
-      "Use DevFlow to start a tracked implementation task",
-      "Resume the active DevFlow task and tell me the next action",
-      "Run DevFlow review or complete the current task"
+      "Use DevFlow to start a tracked project architecture baseline",
+      "Use DevFlow to start a task plan under the approved architecture",
+      "Resume the active DevFlow project and tell me the next action"
     ],
     "brandColor": "#8DB6FF",
     "composerIcon": "./assets/icon.svg",

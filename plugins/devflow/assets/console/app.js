@@ -20,6 +20,7 @@ const artifactOrder = [
   ["dev.md", "Dev Log"],
   ["change-summary.md", "Change Summary"],
   ["review.md", "Review"],
+  ["architecture-change-request.md", "Architecture Change Request"],
 ];
 
 const metricGrid = document.getElementById("metric-grid");
@@ -206,9 +207,12 @@ function normalizeActiveIndex(activeTasks, active) {
 function defaultGlobalSummary() {
   return {
     updated_at: null,
+    active_project_id: null,
     focus_task_id: null,
     active_task_count: 0,
     done_task_count: 0,
+    needs_architect_count: 0,
+    project: null,
     tasks: [],
   };
 }
@@ -242,6 +246,7 @@ function buildWorkspace(workspaceInputData) {
     sourceLabel: workspaceInputData.sourceLabel,
     sourceType: workspaceInputData.sourceType || "imported",
     description: workspaceInputData.description || "",
+    activeProject: workspaceInputData.activeProject || null,
     focusTaskId,
     activeCount: activeIndex.tasks.length,
     activeIndex,
@@ -349,6 +354,9 @@ function renderMetrics() {
     (sum, workspace) => sum + (workspace.counts.blocked || 0),
     0
   );
+  const needsArchitect = state.workspaces.reduce((sum, workspace) => {
+    return sum + (workspace.globalSummary.needs_architect_count || 0);
+  }, 0);
   const inFlightTasks = state.workspaces.reduce((sum, workspace) => {
     return (
       sum +
@@ -376,9 +384,9 @@ function renderMetrics() {
       note: "来自 active-tasks.json 的未完成任务索引总数。",
     },
     {
-      label: "进行中 / 阻塞",
-      value: `${inFlightTasks} / ${blockedTasks}`,
-      note: "便于快速识别需要协调和排障的任务。",
+      label: "进行中 / 架构待决",
+      value: `${inFlightTasks} / ${needsArchitect}`,
+      note: "识别需要 Architect 介入的任务和当前工作负载。",
     },
   ];
 
@@ -414,6 +422,11 @@ function renderWorkspaceList() {
       const isSelected = workspace.id === state.selectedWorkspaceId;
       const focusTask = activeTaskEntry(workspace);
       const chips = [
+        workspace.activeProject?.project_id
+          ? `<span class="mini-badge" data-tone="accent">${escapeHtml(
+              workspace.activeProject.project_id
+            )} v${escapeHtml(workspace.activeProject.architecture_version || "n/a")}</span>`
+          : `<span class="mini-badge" data-tone="neutral">无 active project</span>`,
         workspace.focusTaskId
           ? `<span class="mini-badge" data-tone="accent">焦点 ${escapeHtml(workspace.focusTaskId)}</span>`
           : `<span class="mini-badge" data-tone="neutral">无焦点 task</span>`,
@@ -476,9 +489,12 @@ function renderWorkspaceSummary() {
   const focusTask = activeTaskEntry(workspace);
   const latestLabel = workspace.lastUpdated ? formatDate(workspace.lastUpdated) : "n/a";
   const globalSummary = workspace.globalSummary;
+  const projectSummary = globalSummary.project;
+  const activeProject = workspace.activeProject;
 
   tasksHeaderMetaElement.innerHTML = `
     <span class="count-badge">${escapeHtml(workspace.sourceType === "sample" ? "示例数据" : "本地目录")}</span>
+    <span>project ${escapeHtml(activeProject?.project_id || "n/a")}</span>
     <span>${escapeHtml(workspace.activeCount)} active</span>
     <span>焦点 ${escapeHtml(workspace.focusTaskId || "n/a")}</span>
     <span>最近更新 ${escapeHtml(latestLabel)}</span>
@@ -511,6 +527,11 @@ function renderWorkspaceSummary() {
           workspace.counts.blocked
         )} blocked</span>`
       : "",
+    globalSummary.needs_architect_count
+      ? `<span class="mini-badge" data-tone="danger">${escapeHtml(
+          globalSummary.needs_architect_count
+        )} needs architect</span>`
+      : "",
   ]
     .filter(Boolean)
     .join("");
@@ -540,36 +561,55 @@ function renderWorkspaceSummary() {
       <article class="summary-card">
         <div class="summary-card-header">
           <div>
-            <h3 class="summary-title">Global Summary</h3>
-            <div class="workspace-path">${escapeHtml(formatDate(globalSummary.updated_at))}</div>
+            <h3 class="summary-title">${escapeHtml(activeProject?.project_id || "Project")}</h3>
+            <div class="workspace-path">${escapeHtml(projectSummary?.title || "暂无 active project")}</div>
           </div>
-          <span class="count-badge">${escapeHtml(globalSummary.active_task_count || 0)} active</span>
+          <span class="count-badge">${escapeHtml(
+            activeProject?.architecture_version || projectSummary?.architecture_version || "n/a"
+          )} v</span>
         </div>
         <p class="summary-copy">${escapeHtml(
           compactText(
-            focusTask ? globalTaskSummary(workspace, focusTask.taskId).overview : "暂无焦点 task 对应的全局摘要。",
+            projectSummary?.overview || "暂无 project architecture 摘要。",
             180
           )
         )}</p>
         <div class="summary-chip-row">
-          <span class="mini-badge" data-tone="accent">focus ${escapeHtml(globalSummary.focus_task_id || "n/a")}</span>
+          <span class="mini-badge" data-tone="accent">${escapeHtml(
+            activeProject?.status || projectSummary?.status || "n/a"
+          )}</span>
           <span class="mini-badge" data-tone="neutral">${escapeHtml(globalSummary.done_task_count || 0)} done</span>
+          <span class="mini-badge" data-tone="warn">${escapeHtml(
+            (projectSummary?.changed_modules || []).join(", ") || "no changed modules"
+          )}</span>
         </div>
       </article>
     </div>
 
     <div class="info-grid">
       <div class="info-cell">
+        <span class="info-label">Active Project</span>
+        <span class="info-value">${escapeHtml(activeProject?.project_id || "n/a")}</span>
+      </div>
+      <div class="info-cell">
+        <span class="info-label">Project Status</span>
+        <span class="info-value">${escapeHtml(activeProject?.status || "n/a")}</span>
+      </div>
+      <div class="info-cell">
+        <span class="info-label">Architecture Version</span>
+        <span class="info-value">${escapeHtml(activeProject?.architecture_version || "n/a")}</span>
+      </div>
+      <div class="info-cell">
         <span class="info-label">Focus Task</span>
         <span class="info-value">${escapeHtml(focusTask?.meta.title || focusTask?.taskId || "n/a")}</span>
       </div>
       <div class="info-cell">
-        <span class="info-label">Stage Status</span>
-        <span class="info-value">${escapeHtml(focusTask ? formatStatus(focusTask.meta.status, focusTask.meta.is_blocked) : "n/a")}</span>
+        <span class="info-label">Task Next Action</span>
+        <span class="info-value">${escapeHtml(focusTask?.meta.next_action || "n/a")}</span>
       </div>
       <div class="info-cell">
-        <span class="info-label">Next Action</span>
-        <span class="info-value">${escapeHtml(focusTask?.meta.next_action || "n/a")}</span>
+        <span class="info-label">Needs Architect</span>
+        <span class="info-value">${escapeHtml(globalSummary.needs_architect_count || 0)}</span>
       </div>
       <div class="info-cell">
         <span class="info-label">Global Summary Updated</span>
@@ -637,6 +677,15 @@ function renderTaskList() {
               <span class="mini-badge" data-tone="neutral">plan v${escapeHtml(
                 task.meta.plan_version ?? "n/a"
               )}</span>
+              <span class="mini-badge" data-tone="neutral">${escapeHtml(
+                (task.meta.module_scope || []).join(", ") || "no modules"
+              )}</span>
+              <span class="mini-badge" data-tone="${
+                task.meta.architecture_compliance_status === "compliant" ||
+                task.meta.architecture_compliance_status === "approved_exception"
+                  ? "accent"
+                  : "warn"
+              }">${escapeHtml(task.meta.architecture_compliance_status || "pending")}</span>
               <span class="mini-badge" data-tone="neutral">review ${escapeHtml(
                 task.meta.review_round ?? 0
               )}</span>
@@ -680,6 +729,14 @@ function renderTaskDetail() {
       ? `<span class="mini-badge" data-tone="${
           task.meta.last_review_verdict === "pass" ? "accent" : "danger"
         }">review: ${escapeHtml(formatVerdict(task.meta.last_review_verdict))}</span>`
+      : "",
+    task.meta.architecture_compliance_status
+      ? `<span class="mini-badge" data-tone="${
+          task.meta.architecture_compliance_status === "compliant" ||
+          task.meta.architecture_compliance_status === "approved_exception"
+            ? "accent"
+            : "warn"
+        }">arch: ${escapeHtml(task.meta.architecture_compliance_status)}</span>`
       : "",
     task.meta.is_blocked
       ? `<span class="mini-badge" data-tone="danger">${escapeHtml(
@@ -728,6 +785,26 @@ function renderTaskDetail() {
       <div class="info-cell">
         <span class="info-label">Stage Status</span>
         <span class="info-value">${escapeHtml(task.meta.status || "n/a")}</span>
+      </div>
+      <div class="info-cell">
+        <span class="info-label">Project ID</span>
+        <span class="info-value">${escapeHtml(task.meta.project_id || "n/a")}</span>
+      </div>
+      <div class="info-cell">
+        <span class="info-label">Architecture Version</span>
+        <span class="info-value">${escapeHtml(task.meta.architecture_version || "n/a")}</span>
+      </div>
+      <div class="info-cell">
+        <span class="info-label">Module Scope</span>
+        <span class="info-value">${escapeHtml((task.meta.module_scope || []).join(", ") || "n/a")}</span>
+      </div>
+      <div class="info-cell">
+        <span class="info-label">Constraint Refs</span>
+        <span class="info-value">${escapeHtml((task.meta.constraint_refs || []).join(", ") || "n/a")}</span>
+      </div>
+      <div class="info-cell">
+        <span class="info-label">Architecture Compliance</span>
+        <span class="info-value">${escapeHtml(task.meta.architecture_compliance_status || "n/a")}</span>
       </div>
       <div class="info-cell">
         <span class="info-label">Current Step</span>
@@ -850,6 +927,7 @@ function deriveWorkspaceName(prefix) {
 async function parseImportedWorkspace(files) {
   const prefix = findWorkspaceRootPrefix(files);
   const fileMap = collectWorkspaceFiles(files, prefix);
+  const activeProjectFile = fileMap.get("active-project.json");
   const activeTasksFile = fileMap.get("active-tasks.json");
   const activeTaskFile = fileMap.get("active-task.json");
 
@@ -857,6 +935,9 @@ async function parseImportedWorkspace(files) {
     throw new Error("所选目录缺少 active-tasks.json 或 active-task.json。");
   }
 
+  const activeProject = activeProjectFile
+    ? await readJsonFile(activeProjectFile, "active-project.json")
+    : null;
   const activeTasks = activeTasksFile
     ? await readJsonFile(activeTasksFile, "active-tasks.json")
     : null;
@@ -895,6 +976,7 @@ async function parseImportedWorkspace(files) {
     sourceLabel: prefix,
     sourceType: "imported",
     description: "从本地目录导入的 DevFlowWorkspace。",
+    activeProject,
     activeTasks,
     active,
     globalSummary,
@@ -925,6 +1007,14 @@ function createExampleWorkspaces() {
     sourceLabel: "alpha-repo/DevFlowWorkspace",
     sourceType: "sample",
     description: "示例：两个并行 active task，各自工作在独立 worktree。",
+    activeProject: {
+      project_id: "PROJECT-001",
+      title: "Alpha Dashboard",
+      project_dir: "projects/PROJECT-001",
+      status: "architecture_approved",
+      architecture_version: 3,
+      next_action: "start-plan",
+    },
     activeTasks: {
       focus_task_id: "TASK-008",
       tasks: [
@@ -950,9 +1040,23 @@ function createExampleWorkspaces() {
     },
     globalSummary: {
       updated_at: "2026-04-14T10:24:00+08:00",
+      active_project_id: "PROJECT-001",
       focus_task_id: "TASK-008",
       active_task_count: 2,
       done_task_count: 1,
+      needs_architect_count: 0,
+      project: {
+        project_id: "PROJECT-001",
+        title: "Alpha Dashboard",
+        status: "architecture_approved",
+        next_action: "start-plan",
+        architecture_version: 3,
+        updated_at: "2026-04-14T10:24:00+08:00",
+        changed_modules: ["dashboard-shell", "workspace-loader"],
+        approved_exception_count: 1,
+        pending_exception_count: 0,
+        overview: "架构基线已冻结，dashboard-shell 与 workspace-loader 作为前两批落地模块。",
+      },
       tasks: [
         {
           task_id: "TASK-008",
@@ -985,6 +1089,12 @@ function createExampleWorkspaces() {
           next_action: "review",
           is_blocked: false,
           block_reason: null,
+          project_id: "PROJECT-001",
+          architecture_version: 3,
+          module_scope: ["workspace-loader", "dashboard-shell"],
+          constraint_refs: ["STD-001", "UI-002"],
+          exception_ids: ["EXC-001"],
+          architecture_compliance_status: "approved_exception",
           approved_at: "2026-04-14T08:40:00+08:00",
           last_review_verdict: "changes_requested",
           completed_at: null,
@@ -1022,6 +1132,12 @@ function createExampleWorkspaces() {
           next_action: "approve-plan",
           is_blocked: false,
           block_reason: null,
+          project_id: "PROJECT-001",
+          architecture_version: 3,
+          module_scope: ["dashboard-shell"],
+          constraint_refs: ["STD-001"],
+          exception_ids: [],
+          architecture_compliance_status: "pending",
           approved_at: null,
           last_review_verdict: null,
           completed_at: null,
@@ -1052,6 +1168,12 @@ function createExampleWorkspaces() {
           next_action: null,
           is_blocked: false,
           block_reason: null,
+          project_id: "PROJECT-001",
+          architecture_version: 2,
+          module_scope: ["legacy-ui"],
+          constraint_refs: ["STD-001"],
+          exception_ids: [],
+          architecture_compliance_status: "compliant",
           approved_at: "2026-04-13T19:00:00+08:00",
           last_review_verdict: "pass",
           completed_at: "2026-04-13T22:30:00+08:00",
@@ -1074,6 +1196,14 @@ function createExampleWorkspaces() {
     sourceLabel: "release-train/DevFlowWorkspace",
     sourceType: "sample",
     description: "示例：reviewing、blocked 和 plan_approved 并行存在。",
+    activeProject: {
+      project_id: "PROJECT-001",
+      title: "Release Train",
+      project_dir: "projects/PROJECT-001",
+      status: "architecting",
+      architecture_version: 5,
+      next_action: "approve-arch",
+    },
     activeTasks: {
       focus_task_id: "TASK-014",
       tasks: [
@@ -1108,9 +1238,23 @@ function createExampleWorkspaces() {
     },
     globalSummary: {
       updated_at: "2026-04-14T09:42:00+08:00",
+      active_project_id: "PROJECT-001",
       focus_task_id: "TASK-014",
       active_task_count: 3,
       done_task_count: 0,
+      needs_architect_count: 1,
+      project: {
+        project_id: "PROJECT-001",
+        title: "Release Train",
+        status: "architecting",
+        next_action: "approve-arch",
+        architecture_version: 5,
+        updated_at: "2026-04-14T09:42:00+08:00",
+        changed_modules: ["marketplace-sync"],
+        approved_exception_count: 0,
+        pending_exception_count: 2,
+        overview: "架构正在调整 marketplace-sync 边界，相关 task 会被自动阻断等待 Architect 决策。",
+      },
       tasks: [
         {
           task_id: "TASK-014",
@@ -1143,6 +1287,12 @@ function createExampleWorkspaces() {
           next_action: "await_review_result",
           is_blocked: false,
           block_reason: null,
+          project_id: "PROJECT-001",
+          architecture_version: 4,
+          module_scope: ["marketplace-sync"],
+          constraint_refs: ["STD-001", "SYNC-004"],
+          exception_ids: [],
+          architecture_compliance_status: "needs_architect_decision",
           approved_at: "2026-04-14T07:12:00+08:00",
           last_review_verdict: "pass",
           completed_at: null,
@@ -1174,6 +1324,12 @@ function createExampleWorkspaces() {
           next_action: "dev",
           is_blocked: true,
           block_reason: "等待用户提供损坏样例",
+          project_id: "PROJECT-001",
+          architecture_version: 5,
+          module_scope: ["workspace-loader"],
+          constraint_refs: ["STD-001"],
+          exception_ids: [],
+          architecture_compliance_status: "pending",
           approved_at: "2026-04-14T06:10:00+08:00",
           last_review_verdict: "blocked",
           completed_at: null,
@@ -1202,6 +1358,12 @@ function createExampleWorkspaces() {
           next_action: "dev",
           is_blocked: false,
           block_reason: null,
+          project_id: "PROJECT-001",
+          architecture_version: 5,
+          module_scope: ["metrics"],
+          constraint_refs: ["STD-001", "OBS-003"],
+          exception_ids: [],
+          architecture_compliance_status: "pending",
           approved_at: "2026-04-14T04:45:00+08:00",
           last_review_verdict: null,
           completed_at: null,

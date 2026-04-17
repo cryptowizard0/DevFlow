@@ -12,7 +12,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from devflow_lib import read_json, read_text, write_text
+from devflow_lib import normalize_string_list, read_json, read_text, write_text
 
 
 def parse_args() -> argparse.Namespace:
@@ -55,6 +55,10 @@ def main() -> int:
     repo_root = resolve_repo_root(meta, args.repo_root)
 
     dev_log = read_text(task_dir / "dev.md").strip() or "No development notes recorded yet."
+    architecture_change_request = (
+        read_text(task_dir / "architecture-change-request.md").strip()
+        or "No architecture change request recorded."
+    )
     status_short = run_git(repo_root, "status", "--short")
     diff_stat = run_git(repo_root, "diff", "--stat")
     cached_diff_stat = run_git(repo_root, "diff", "--cached", "--stat")
@@ -68,6 +72,15 @@ def main() -> int:
             f"- Path: `{repo_root}`",
             f"- Branch: `{meta.get('worktree_branch') or 'n/a'}`",
             f"- Base Ref: `{meta.get('worktree_base_ref') or 'n/a'}`",
+            "",
+            "## Architecture Binding",
+            "",
+            f"- Project ID: `{meta.get('project_id') or 'n/a'}`",
+            f"- Architecture Version: `{meta.get('architecture_version') or 'n/a'}`",
+            f"- Module Scope: {', '.join(normalize_string_list(meta.get('module_scope'))) or 'n/a'}",
+            f"- Constraint Refs: {', '.join(normalize_string_list(meta.get('constraint_refs'))) or 'n/a'}",
+            f"- Exception IDs: {', '.join(normalize_string_list(meta.get('exception_ids'))) or 'n/a'}",
+            f"- Architecture Compliance Status: `{meta.get('architecture_compliance_status') or 'n/a'}`",
             "",
             "## Working Tree",
             "",
@@ -91,6 +104,12 @@ def main() -> int:
             "",
             "```md",
             dev_log,
+            "```",
+            "",
+            "## Architecture Change Request Snapshot",
+            "",
+            "```md",
+            architecture_change_request,
             "```",
             "",
         ]

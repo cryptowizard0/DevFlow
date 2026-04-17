@@ -4,19 +4,16 @@ This file defines repository-specific rules for this project. Unless the user ex
 
 ## Project Purpose
 
-This repository is used to build `DevFlow`, a Codex plugin for complex engineering tasks.
+This repository is used to build `DevFlow`, a Codex plugin for architecture-first engineering tasks.
 
-DevFlow is intended to run tasks through an explicit lifecycle:
+DevFlow now operates on two layers:
 
-```text
-plan -> dev -> review -> done
-```
+- project layer: `Architect` maintains the architecture baseline
+- task layer: `plan -> dev -> review -> done`
 
-and persist state, planning decisions, development notes, review results, and cross-task knowledge in `DevFlowWorkspace/`.
+The system is document-first: without an approved architecture baseline there is no task, and without referenced constraint documents there is no development.
 
 ## Repository Layout
-
-This repository uses the following structure:
 
 ```text
 .
@@ -42,11 +39,14 @@ This is an established repository convention and should be preserved.
 
 ## Source Of Truth
 
+- `DevFlowWorkspace/projects/PROJECT-001/meta.json` is the single source of truth for project architecture state
 - `DevFlowWorkspace/tasks/TASK-xxx/meta.json` is the single source of truth for task stage state
+- `DevFlowWorkspace/active-project.json` is the active project projection
 - `DevFlowWorkspace/active-tasks.json` is the source of truth for unfinished task indexing and focus-task selection
-- `DevFlowWorkspace/active-task.json` is a compatibility projection for the current focus task; it is not the primary source of truth
-- `DevFlowWorkspace/global-summary.json` is the source of truth for shared cross-task summary data
-- `DevFlowWorkspace/tasks/TASK-xxx/summary.md` is the task-local handoff and recovery summary for one task
+- `DevFlowWorkspace/active-task.json` is a compatibility projection for the current focus task
+- `DevFlowWorkspace/global-summary.json` is the source of truth for shared project/task summary data
+- `DevFlowWorkspace/projects/PROJECT-001/summary.md` is the project-local handoff and recovery summary
+- `DevFlowWorkspace/tasks/TASK-xxx/summary.md` is the task-local handoff and recovery summary
 - markdown files are audit logs, recovery context, stage artifacts, and human-readable views; they do not override state
 - plugin behavior and documentation should stay aligned across:
   - `plugins/devflow/.codex-plugin/plugin.json`
@@ -58,14 +58,27 @@ This is an established repository convention and should be preserved.
 
 `DevFlowWorkspace/` is a repository asset, not a disposable temp directory. Unless the user explicitly asks for it, do not delete it, reset it, or ignore it.
 
-Each workspace now follows this contract:
+Each workspace follows this contract:
 
 ```text
 DevFlowWorkspace/
+├── active-project.json
 ├── active-task.json
 ├── active-tasks.json
 ├── global-summary.json
 ├── global-summary.md
+├── projects/
+│   └── PROJECT-001/
+│       ├── meta.json
+│       ├── request.md
+│       ├── architecture.md
+│       ├── module-map.md
+│       ├── standards.md
+│       ├── roadmap.md
+│       ├── constraints.json
+│       ├── architecture-history.md
+│       ├── summary.md
+│       └── adr/
 └── tasks/
     └── TASK-xxx/
         ├── meta.json
@@ -75,21 +88,22 @@ DevFlowWorkspace/
         ├── dev.md
         ├── change-summary.md
         ├── review.md
+        ├── architecture-change-request.md
         └── summary.md
 ```
 
-Each task also owns an isolated git worktree, recorded in `meta.json`:
+Each task owns an isolated git worktree, recorded in `meta.json`:
 
-- default root resolution:
-  - `DEVFLOW_WORKTREE_ROOT/<repo-name>/<task-id>/` when explicitly set
-  - `CODEX_HOME/worktrees/devflow/<repo-name>/<task-id>/` when `CODEX_HOME` is set
-  - `~/.codex/worktrees/devflow/<repo-name>/<task-id>/` when `~/.codex` already exists
-  - otherwise `~/.local/share/devflow/worktrees/<repo-name>/<task-id>/`
-- default branch: `codex/devflow/<task-id>`
+- `DEVFLOW_WORKTREE_ROOT/<repo-name>/<task-id>/` when explicitly set
+- `CODEX_HOME/worktrees/devflow/<repo-name>/<task-id>/` when `CODEX_HOME` is set
+- `~/.codex/worktrees/devflow/<repo-name>/<task-id>/` when `~/.codex` already exists
+- otherwise `~/.local/share/devflow/worktrees/<repo-name>/<task-id>/`
 
-### Status machine
+Default branch remains `codex/devflow/<task-id>`.
 
-Allowed core stage states:
+## State Machines
+
+Task stage states:
 
 ```text
 draft
@@ -101,34 +115,93 @@ draft
 -> done
 ```
 
+Project stage states:
+
+```text
+architecting
+<-> architecture_approved
+```
+
 Key rules:
 
-- `status` only represents the workflow stage
-- `planner_agent_status` and `reviewer_agent_status` only represent runtime/session state
+- `status` only represents stage state
+- `architect_agent_status`, `planner_agent_status`, and `reviewer_agent_status` only represent runtime/session state
 - `current_step` is descriptive free text; it is not a stage enum
 - `next_action` controls what may happen next
 - `is_blocked` and `block_reason` represent blocking state without changing the stage enum
 - `dev` must not run before `approve-plan`
+- `start-plan` must not run before `approve-arch`
 - `review` must not modify code
 - `review pass` means the task is ready to complete, not completed
 - only explicit `done` finishes a task and removes it from `active-tasks.json`
 - when a focused task is completed, the focus should move to another unfinished task if one exists; otherwise it should clear
 
-### Agent naming
+## Role Boundaries
 
-- the planning subagent is always named `Planner`
-- the review subagent is always named `Reviewer`
-- `Planner` is task-scoped and may be reused across plan iterations
-- `Reviewer` is created per review round and does not need to be reused
+- `Architect` is project-scoped. Owns architecture baseline, module split, standards, roadmap, `constraints.json`, ADRs, and approved exceptions.
+- `Planner` is task-scoped. Can only plan under an approved architecture baseline.
+- `Developer` implements a bounded task slice. Cannot edit project architecture documents or invent new constraints.
+- `Reviewer` checks correctness and architecture compliance. Cannot approve architecture deviations.
 
-### Cross-task knowledge
+Hard boundaries:
 
-- every stage-ending update should refresh both the task `summary.md` and workspace `global-summary.json` / `global-summary.md`
-- new planning or development work should read `global-summary.md` first
-- `summary.md` under a task directory is local to that task; it is not the shared workspace summary
+- `Architect` does not write business code
+- `Architect` does not directly approve task completion
+- `Planner` does not change project architecture
+- `Developer` does not change project architecture documents
+- `Reviewer` does not approve architecture exceptions
+
+## Document Constraints
+
+The most important project documents are:
+
+- `architecture.md`: overall system architecture design. It should cover system description, tech stack, overall architecture, runtime flow and data flow, module split, cross-module constraints and relationships, schema / data structures, project directory layout, and key design decisions.
+- `module-map.md`: detailed module design, responsibilities, boundaries, dependency direction, and module IDs. This is the key implementation document for individual task delivery and should be implementation-ready. It may remain a top-level index and point to multiple module-specific markdown files when needed.
+- `standards.md`: code standards, testing requirements, error handling, logging, and interface contracts.
+- `roadmap.md`: complete development plan, including module implementation order and recommended task breakdown.
+- `constraints.json`: machine-readable subset of approved architecture constraints used by gate and check logic.
+- `adr/`
+
+They are constraint inputs, not optional reference notes.
+
+Planner requirements:
+
+- read `architecture_version`, `module_scope`, `constraint_refs`, related ADRs, and roadmap entries
+- `plan.md` must include:
+  - `Architecture Context`
+  - `Modules In Scope`
+  - `Constraints Checklist`
+  - `Required Exceptions`
+  - `Implementation Order`
+
+Developer requirements:
+
+- only inject architecture fragments relevant to the current `module_scope`
+- explicitly declare followed `constraint_refs`, referenced architecture docs, and used exceptions in `dev.md`
+- do not advance to review unless the `dev.md` compliance declaration is complete and matches the task architecture binding
+- if implementation needs an architecture change, write `architecture-change-request.md` and route through `update-arch`
+
+Reviewer requirements:
+
+- review both correctness and architecture compliance
+- produce:
+  - `implementation_verdict: pass | changes_requested | blocked`
+  - `architecture_verdict: compliant | deviation | needs_architect_decision`
+- only `pass + compliant` or `pass + approved_exception` may lead to `done`
+- semantic `update-arch` on an approved project must be backed by a concrete task `architecture-change-request.md`
+- helper scripts must not use `--set/--clear` to override file-backed architecture, review, or constraint state
+
+## Cross-task knowledge
+
+- every stage-ending update should refresh the relevant `summary.md` and workspace `global-summary.json` / `global-summary.md`
+- new architecture, planning, or development work should read `global-summary.md` first
+- `projects/PROJECT-001/summary.md` is project-local; it is not the shared workspace summary
+- `tasks/TASK-xxx/summary.md` is task-local; it is not the shared workspace summary
 - shared summary data should emphasize:
+  - active project state and architecture version
   - task overview
   - stage status and next action
+  - architecture bindings
   - key data structures / interfaces / file contracts
   - key config / environment requirements
   - pitfalls, bugs, and mistakes to avoid
@@ -142,16 +215,22 @@ Key rules:
   - `README.md`
   - `AGENTS.md` if repository rules change
 - Do not change scripts without updating user-facing documentation, and do not change documentation without updating scripts, unless the user explicitly asks for only one side
-- Do not introduce task file names or state names that conflict with the existing protocol
+- Do not introduce file names or state names that conflict with the existing protocol
 - Do not place runtime logic inside `.codex-plugin/`; that directory is for `plugin.json` only
 - `assets/console/` is a static browser UI; keep it zero-dependency and directly runnable when edited
+- `constraints.json` is the only machine-readable source for architecture gating; markdown explains semantics but does not replace it
 
 ## Scripts
 
-The main scripts currently live in `plugins/devflow/scripts/`.
+The main scripts live in `plugins/devflow/scripts/`.
 
 Important scripts include:
 
+- `init_project.py`
+- `update_project_meta.py`
+- `generate_project_summary.py`
+- `append_architecture_history.py`
+- `migrate_legacy_workspace.py`
 - `init_task.py`
 - `check_gate.py`
 - `update_meta.py`
@@ -166,8 +245,10 @@ When modifying these scripts:
 
 - keep the CLI interface as stable as possible
 - when adding an action or transition, update both `README.md` and the related skill text
-- treat state updates for a single task as serialized operations; avoid concurrent writes to the same `meta.json`
+- treat state updates for a single project or task as serialized operations
+- avoid concurrent writes to the same `meta.json`
 - do not let one task inspect or mutate another task's worktree by accident
+- do not let task-side roles mutate `projects/PROJECT-001/*`
 
 ## Marketplace / Installation
 
@@ -179,19 +260,15 @@ Do not treat the home-directory marketplace file as a repository file or commit 
 
 ## Current Boundary
 
-This repository already implements:
+This repository now implements:
 
-- the plugin manifest
-- skill definitions
-- the multi-task workspace file protocol
+- plugin manifest
+- skill definitions and role constraints
+- project + task workspace file protocol
 - per-task worktree assignment helpers
 - state machine helper scripts
-- workspace and global summary generators
+- project, task, and global summary generators
+- architecture drift blocking
 - the static console page
 
-This repository does not yet fully implement:
-
-- the main orchestrator that connects `Planner` / `Reviewer` to real `spawn_agent` and `resume_agent` calls
-- end-to-end automated execution of the full `plan / dev / review / done` lifecycle inside Codex
-
-Future work should build the orchestrator on top of the existing protocol rather than replacing the current file layout.
+This repository still does not ship a standalone orchestrator binary beyond the persisted protocol, skills, and helper scripts in this repo.
