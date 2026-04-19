@@ -59,8 +59,12 @@ def main() -> int:
         f"- Worktree Path: {meta.get('worktree_path') or 'n/a'}",
         f"- Worktree Branch: {meta.get('worktree_branch') or 'n/a'}",
         f"- Worktree Base Ref: {meta.get('worktree_base_ref') or 'n/a'}",
+        f"- Architecture ID: {meta.get('architecture_id') or 'n/a'}",
+        f"- Module ID: {meta.get('module_id') or 'n/a'}",
+        f"- Architecture Path: {meta.get('architecture_path') or 'n/a'}",
         f"- Global Summary Updated At: {meta.get('global_summary_updated_at') or 'n/a'}",
         f"- Active Task Count: {len(active_index.get('tasks', []))}",
+        f"- Architecture Count: {global_summary.get('architecture_count', 0)}",
         f"- Global Summary File: {workspace / 'global-summary.md'}",
         "",
     ]
@@ -82,6 +86,8 @@ def main() -> int:
             f"- Focus Task: `{global_summary.get('focus_task_id') or 'n/a'}`",
             f"- Active Tasks: {global_summary.get('active_task_count', 0)}",
             f"- Done Tasks: {global_summary.get('done_task_count', 0)}",
+            f"- Architectures: {global_summary.get('architecture_count', 0)}",
+            f"- Published Architectures: {global_summary.get('published_architecture_count', 0)}",
         ]
     )
     print("\n".join(lines))

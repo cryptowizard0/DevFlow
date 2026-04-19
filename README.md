@@ -1,8 +1,8 @@
 # DevFlow
 
-DevFlow is a Codex plugin for complex engineering tasks. It runs work through an explicit `plan -> dev -> review -> done` lifecycle and persists task state, worktree assignment, summaries, and review output in `DevFlowWorkspace/`.
+DevFlow is a Codex plugin for complex engineering tasks. It supports both architecture discovery and the explicit `plan -> dev -> review -> done` implementation lifecycle, and persists task state, architecture packages, worktree assignment, summaries, and review output in `DevFlowWorkspace/`.
 
-This repository is intended to be agent-friendly: the public interface is the `devflow` skill, and agents should use that entrypoint rather than operating the underlying scripts directly.
+This repository is intended to be agent-friendly: the public interfaces are the `devflow` and `devflow-architect` skills, and agents should use those entrypoints rather than operating the underlying scripts directly.
 
 ## What DevFlow Is For
 
@@ -31,6 +31,7 @@ DevFlow persists task lifecycle and collaboration context into:
 - `meta.json`
 
 Each task also owns an isolated git worktree.
+Architecture packages live alongside tasks under `DevFlowWorkspace/architectures/`.
 
 ## Public Usage For Agents
 
@@ -47,9 +48,10 @@ The plugin source stays in this repository, while Codex discovers it through the
 
 ### Public Entry Point
 
-The only public entrypoint is:
+The public entrypoints are:
 
 - `devflow`
+- `devflow-architect`
 
 Agents should:
 
@@ -79,6 +81,8 @@ The normal lifecycle is:
 
 Use `resume` whenever the focus task or the parallel task set needs to be restored from workspace state.
 
+Use `devflow-architect` when the user should first turn a fuzzy request into executable architecture documents before starting one or more implementation tasks.
+
 ### Supported User Intents
 
 DevFlow is designed around explicit actions:
@@ -91,11 +95,14 @@ DevFlow is designed around explicit actions:
 - `done`
 - `resume`
 
+Architecture work is handled separately through `devflow-architect`, which creates architecture packages under `DevFlowWorkspace/architectures/ARCH-xxx/`.
+
 Every action may target a specific task. If the task is omitted, DevFlow uses the current focus task.
 
 Example user requests an agent should translate into DevFlow usage:
 
 - "Use DevFlow to start a task for this refactor."
+- "Use DevFlow Architect to design the system before we implement it."
 - "Use DevFlow to update the current plan with these changes."
 - "Approve the current DevFlow plan."
 - "Use DevFlow to continue development on TASK-014."
@@ -167,6 +174,7 @@ Key rules:
 │   ├── active-tasks.json
 │   ├── global-summary.json
 │   ├── global-summary.md
+│   ├── architectures/
 │   └── tasks/
 └── plugins/
     └── devflow/
@@ -182,6 +190,8 @@ Key rules:
   plugin manifest
 - [plugins/devflow/skills/devflow/SKILL.md](plugins/devflow/skills/devflow/SKILL.md)
   public DevFlow entrypoint
+- [plugins/devflow/skills/devflow-architect/SKILL.md](plugins/devflow/skills/devflow-architect/SKILL.md)
+  public architecture entrypoint
 - [plugins/devflow/skills/devflow-plan-internal/SKILL.md](plugins/devflow/skills/devflow-plan-internal/SKILL.md)
   internal Planner skill
 - [plugins/devflow/skills/devflow-review-internal/SKILL.md](plugins/devflow/skills/devflow-review-internal/SKILL.md)
@@ -205,6 +215,22 @@ DevFlowWorkspace/tasks/TASK-xxx/
 └── summary.md
 ```
 
+Each architecture directory follows this structure:
+
+```text
+DevFlowWorkspace/architectures/ARCH-xxx/
+├── meta.json
+├── request.md
+├── outline.md
+├── architecture.md
+├── data-structures.md
+├── constraints.md
+├── development-plan.md
+├── summary.md
+└── modules/
+    └── <module-id>.md
+```
+
 Workspace-level files:
 
 - `active-tasks.json` is the source of truth for unfinished task indexing and focus-task selection
@@ -213,6 +239,7 @@ Workspace-level files:
 - `global-summary.md` is the human-readable view of the same shared summary
 - `meta.json` is the single source of truth for an individual task's stage state
 - `summary.md` is the task-local handoff and recovery snapshot for one task only
+- `architectures/ARCH-xxx/summary.md` is the architecture-local handoff snapshot for one architecture package
 - `global-summary.md` is the cross-task shared summary for the whole workspace
 - markdown files are recovery context, stage artifacts, and shareable knowledge
 
@@ -227,6 +254,18 @@ Each task `meta.json` now also records:
 - `worktree_branch`
 - `worktree_base_ref`
 - `global_summary_updated_at`
+- `architecture_id`
+- `module_id`
+- `architecture_path`
+
+Architecture `meta.json` records:
+
+- `architecture_id`
+- `title`
+- `status`
+- `outline_version`
+- `module_ids`
+- `linked_task_ids`
 
 Each task gets an isolated worktree by default:
 
@@ -248,16 +287,19 @@ Use the scripts when:
 - validating the file protocol
 - testing state transitions, worktree generation, and workspace summaries
 
-Do not use the scripts as the primary usage instructions for end users or agents. The intended public path is still `devflow`.
+Do not use the scripts as the primary usage instructions for end users or agents. The intended public paths are still `devflow` and `devflow-architect`.
 
 ### Important scripts
 
 - `init_task.py`
+- `init_architecture.py`
 - `check_gate.py`
 - `update_meta.py`
+- `update_architecture_meta.py`
 - `append_plan_history.py`
 - `generate_change_summary.py`
 - `generate_summary.py`
+- `generate_architecture_summary.py`
 - `generate_global_summary.py`
 - `render_resume.py`
 - `open_console.py`

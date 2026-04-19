@@ -15,6 +15,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from devflow_lib import (
     load_meta,
+    normalize_task_architecture_binding,
     now_iso,
     sync_workspace_state,
     write_global_summary,
@@ -135,6 +136,8 @@ def main() -> int:
 
     for key in args.clear:
         meta[key] = None
+
+    normalize_task_architecture_binding(workspace, meta)
 
     meta["updated_at"] = now_iso()
     write_json(meta_path, meta)

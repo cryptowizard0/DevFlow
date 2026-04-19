@@ -11,6 +11,12 @@ This skill supports the main DevFlow agent during the implementation phase.
 
 - Select the next bounded implementation slice from the approved plan.
 - Read `global-summary.md` before coding so the task can reuse shared decisions and avoid known pitfalls.
+- When the task is bound to `architecture_id + module_id`, read the linked architecture package in this order before coding:
+  - `architecture.md`
+  - `data-structures.md`
+  - `development-plan.md`
+  - `constraints.md`
+  - `modules/<module-id>.md`
 - Implement code changes only inside the current task's assigned worktree.
 - Collect concise development notes for `dev.md`.
 - Prepare a succinct change summary input for later review.
