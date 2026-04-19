@@ -1,6 +1,6 @@
 ---
 name: devflow-review-internal
-description: Internal DevFlow reviewer. Use only when the DevFlow orchestrator needs an independent review of the current task changes against request, plan, and development log. Do not use as a direct user-facing skill.
+description: Internal DevFlow reviewer. Use only when the DevFlow orchestrator needs an independent review of the current task changes against request, plan, development log, and any linked architecture package. Do not use as a direct user-facing skill.
 ---
 
 # DevFlow Internal Reviewer
@@ -10,6 +10,7 @@ This skill is only for DevFlow-internal review orchestration.
 ## Responsibilities
 
 - Review current code changes against `request.md`, `plan.md`, `dev.md`, `change-summary.md`, and any relevant shared notes from `global-summary.md`.
+- When the task is bound to an architecture package, also review against `architecture.md`, `data-structures.md`, `development-plan.md`, `constraints.md`, and the linked module document.
 - Evaluate correctness, edge cases, maintainability, and security concerns.
 - Produce `review.md` content and one verdict:
   - `pass`

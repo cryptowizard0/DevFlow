@@ -6,13 +6,18 @@ This file defines repository-specific rules for this project. Unless the user ex
 
 This repository is used to build `DevFlow`, a Codex plugin for complex engineering tasks.
 
-DevFlow is intended to run tasks through an explicit lifecycle:
+DevFlow is intended to support two complementary workflows:
+
+- architecture discovery and documentation through `devflow-architect`
+- implementation execution through the existing `plan -> dev -> review -> done` lifecycle
+
+Implementation tasks still run through:
 
 ```text
 plan -> dev -> review -> done
 ```
 
-and persist state, planning decisions, development notes, review results, and cross-task knowledge in `DevFlowWorkspace/`.
+and persist task state, architecture documents, planning decisions, development notes, review results, and cross-task knowledge in `DevFlowWorkspace/`.
 
 ## Repository Layout
 
@@ -43,10 +48,12 @@ This is an established repository convention and should be preserved.
 ## Source Of Truth
 
 - `DevFlowWorkspace/tasks/TASK-xxx/meta.json` is the single source of truth for task stage state
+- `DevFlowWorkspace/architectures/ARCH-xxx/meta.json` is the single source of truth for one architecture package
 - `DevFlowWorkspace/active-tasks.json` is the source of truth for unfinished task indexing and focus-task selection
 - `DevFlowWorkspace/active-task.json` is a compatibility projection for the current focus task; it is not the primary source of truth
 - `DevFlowWorkspace/global-summary.json` is the source of truth for shared cross-task summary data
 - `DevFlowWorkspace/tasks/TASK-xxx/summary.md` is the task-local handoff and recovery summary for one task
+- `DevFlowWorkspace/architectures/ARCH-xxx/summary.md` is the architecture-local handoff summary for downstream task consumers
 - markdown files are audit logs, recovery context, stage artifacts, and human-readable views; they do not override state
 - plugin behavior and documentation should stay aligned across:
   - `plugins/devflow/.codex-plugin/plugin.json`
@@ -66,6 +73,18 @@ DevFlowWorkspace/
 ├── active-tasks.json
 ├── global-summary.json
 ├── global-summary.md
+├── architectures/
+│   └── ARCH-xxx/
+│       ├── meta.json
+│       ├── request.md
+│       ├── outline.md
+│       ├── architecture.md
+│       ├── data-structures.md
+│       ├── constraints.md
+│       ├── development-plan.md
+│       ├── summary.md
+│       └── modules/
+│           └── <module-id>.md
 └── tasks/
     └── TASK-xxx/
         ├── meta.json
@@ -86,6 +105,8 @@ Each task also owns an isolated git worktree, recorded in `meta.json`:
   - `~/.codex/worktrees/devflow/<repo-name>/<task-id>/` when `~/.codex` already exists
   - otherwise `~/.local/share/devflow/worktrees/<repo-name>/<task-id>/`
 - default branch: `codex/devflow/<task-id>`
+
+Architecture packages do not own worktrees and do not participate in the task status machine. They are linked into tasks only through `architecture_id`, `module_id`, and `architecture_path`.
 
 ### Status machine
 
@@ -124,11 +145,14 @@ Key rules:
 ### Cross-task knowledge
 
 - every stage-ending update should refresh both the task `summary.md` and workspace `global-summary.json` / `global-summary.md`
+- architecture package updates should refresh both the architecture `summary.md` and workspace `global-summary.json` / `global-summary.md`
 - new planning or development work should read `global-summary.md` first
 - `summary.md` under a task directory is local to that task; it is not the shared workspace summary
+- `architectures/ARCH-xxx/summary.md` is local to that architecture package; it is not task state
 - shared summary data should emphasize:
   - task overview
   - stage status and next action
+  - architecture bindings and published architecture packages
   - key data structures / interfaces / file contracts
   - key config / environment requirements
   - pitfalls, bugs, and mistakes to avoid
@@ -153,11 +177,14 @@ The main scripts currently live in `plugins/devflow/scripts/`.
 Important scripts include:
 
 - `init_task.py`
+- `init_architecture.py`
 - `check_gate.py`
 - `update_meta.py`
+- `update_architecture_meta.py`
 - `append_plan_history.py`
 - `generate_change_summary.py`
 - `generate_summary.py`
+- `generate_architecture_summary.py`
 - `generate_global_summary.py`
 - `render_resume.py`
 - `open_console.py`
@@ -184,6 +211,7 @@ This repository already implements:
 - the plugin manifest
 - skill definitions
 - the multi-task workspace file protocol
+- architecture package workspace protocol
 - per-task worktree assignment helpers
 - state machine helper scripts
 - workspace and global summary generators
@@ -192,6 +220,7 @@ This repository already implements:
 This repository does not yet fully implement:
 
 - the main orchestrator that connects `Planner` / `Reviewer` to real `spawn_agent` and `resume_agent` calls
+- a first-class orchestrator loop for `devflow-architect`
 - end-to-end automated execution of the full `plan / dev / review / done` lifecycle inside Codex
 
 Future work should build the orchestrator on top of the existing protocol rather than replacing the current file layout.

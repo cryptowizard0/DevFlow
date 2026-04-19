@@ -1,11 +1,11 @@
 ---
 name: devflow
-description: Use when the user wants to manage a complex development task through an explicit plan -> dev -> review workflow with persisted task state and markdown artifacts. This is the only public entrypoint for the DevFlow plugin.
+description: Use when the user wants to manage a complex development task through an explicit plan -> dev -> review workflow with persisted task state and markdown artifacts. This is a public DevFlow workflow entrypoint.
 ---
 
 # DevFlow
 
-DevFlow is the public entrypoint for a staged development workflow.
+DevFlow is a public entrypoint for a staged development workflow.
 
 ## Supported actions
 
@@ -18,6 +18,11 @@ Use explicit action words:
 - `review`: generate `change-summary.md` from the target worktree, invoke the `Reviewer` subagent, write `review.md`, and move back to `developing` with `next_action=dev` or `next_action=done`
 - `done`: only after a passing review; refresh `summary.md`, mark the task complete, and remove it from `active-tasks.json`
 - `resume`: read the focus task plus the parallel active-task index and return the current state summary
+
+`start` may optionally bind the new task to an architecture package by recording:
+
+- `architecture_id`
+- `module_id`
 
 All actions may target an explicit task. If no task is specified, use the current focus task. When an explicit task is targeted, it becomes the new focus task.
 
@@ -44,6 +49,18 @@ DevFlowWorkspace/
   active-tasks.json
   global-summary.json
   global-summary.md
+  architectures/
+    ARCH-xxx/
+      meta.json
+      request.md
+      outline.md
+      architecture.md
+      data-structures.md
+      constraints.md
+      development-plan.md
+      summary.md
+      modules/
+        <module-id>.md
   tasks/
     TASK-xxx/
       meta.json
@@ -66,6 +83,7 @@ DevFlowWorkspace/
 - task identity and stage snapshot: `task_id`, `title`, `status`, `next_action`
 - blocking state: `is_blocked`, `block_reason`
 - worktree assignment: `worktree_path`, `worktree_branch`, `worktree_base_ref`
+- optional architecture binding: `architecture_id`, `module_id`, `architecture_path`
 - a short `Work Overview`
 - `Key Structures / Interfaces / File Contracts`
 - `Key Config / Environment`
@@ -86,17 +104,28 @@ Each task owns an isolated worktree:
 
 Before planning or development, read `global-summary.md` or `global-summary.json` to reuse prior conclusions, key structures, config notes, and known pitfalls from other tasks.
 
+When a task is bound to an architecture package, also read these in order before development or architecture-sensitive review:
+
+1. `DevFlowWorkspace/architectures/ARCH-xxx/architecture.md`
+2. `DevFlowWorkspace/architectures/ARCH-xxx/data-structures.md`
+3. `DevFlowWorkspace/architectures/ARCH-xxx/development-plan.md`
+4. `DevFlowWorkspace/architectures/ARCH-xxx/constraints.md`
+5. `DevFlowWorkspace/architectures/ARCH-xxx/modules/<module-id>.md`
+
 ## Script helpers
 
 Use these deterministic helpers for file and state operations:
 
 - `plugins/devflow/scripts/init_task.py`
+- `plugins/devflow/scripts/init_architecture.py`
 - `plugins/devflow/scripts/check_gate.py`
 - `plugins/devflow/scripts/update_meta.py`
+- `plugins/devflow/scripts/update_architecture_meta.py`
 - `plugins/devflow/scripts/append_plan_history.py`
 - `plugins/devflow/scripts/render_resume.py`
 - `plugins/devflow/scripts/generate_change_summary.py`
 - `plugins/devflow/scripts/generate_summary.py`
+- `plugins/devflow/scripts/generate_architecture_summary.py`
 - `plugins/devflow/scripts/generate_global_summary.py`
 - `plugins/devflow/scripts/open_console.py`
 

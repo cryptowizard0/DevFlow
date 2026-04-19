@@ -19,6 +19,7 @@ from devflow_lib import (
     create_task_worktree,
     ensure_workspace,
     init_meta,
+    normalize_task_architecture_binding,
     next_task_id,
     repo_root_for_workspace,
     sync_workspace_state,
@@ -58,6 +59,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workspace", required=True, help="Path to DevFlowWorkspace")
     parser.add_argument("--title", required=True, help="Task title")
     parser.add_argument("--request", required=True, help="Initial user request text")
+    parser.add_argument("--architecture-id", help="Optional architecture package to bind.")
+    parser.add_argument("--module-id", help="Optional module id within the architecture package.")
     return parser.parse_args()
 
 
@@ -74,6 +77,14 @@ def main() -> int:
     worktree_branch: str | None = None
 
     try:
+        binding_preview = {
+            "architecture_id": args.architecture_id,
+            "module_id": args.module_id,
+        }
+        architecture_id, module_id, architecture_path = normalize_task_architecture_binding(
+            workspace,
+            binding_preview,
+        )
         create_task_files(task_dir, args.title, args.request, task_id)
         worktree_path, worktree_branch, worktree_base_ref = create_task_worktree(repo_root, task_id)
         meta = init_meta(
@@ -82,6 +93,9 @@ def main() -> int:
             str(worktree_path),
             worktree_branch,
             worktree_base_ref,
+            architecture_id=architecture_id,
+            module_id=module_id,
+            architecture_path=architecture_path,
         )
         write_json(task_dir / "meta.json", meta)
         sync_workspace_state(workspace, preferred_focus_task_id=task_id)

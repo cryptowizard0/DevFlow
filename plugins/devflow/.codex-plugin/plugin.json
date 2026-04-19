@@ -1,12 +1,12 @@
 {
   "name": "devflow",
   "version": "0.1.0",
-  "description": "Structured plan-dev-review workflow for large development tasks with task state and markdown artifacts.",
+  "description": "Structured architecture, plan, dev, and review workflow for large development tasks with task state and markdown artifacts.",
   "skills": "./skills/",
   "interface": {
     "displayName": "DevFlow",
-    "shortDescription": "Run large development tasks through plan, dev, and review",
-    "longDescription": "Coordinate complex software tasks through an explicit plan, implementation, and review workflow with persisted task state and markdown artifacts.",
+    "shortDescription": "Plan, architect, build, and review complex engineering work",
+    "longDescription": "Coordinate complex software tasks through architecture discovery plus an explicit plan, implementation, and review workflow with persisted task state and markdown artifacts.",
     "developerName": "webbergao",
     "category": "Coding",
     "capabilities": [
@@ -15,6 +15,8 @@
     ],
     "defaultPrompt": [
       "Use DevFlow to start a tracked implementation task",
+      "Use DevFlow Architect to turn this feature request into executable architecture docs",
+      "Create a DevFlow architecture package for this system and then bind a task to one module",
       "Resume the active DevFlow task and tell me the next action",
       "Run DevFlow review or complete the current task"
     ],
