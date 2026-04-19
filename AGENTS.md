@@ -19,6 +19,24 @@ plan -> dev -> review -> done
 
 and persist task state, architecture documents, planning decisions, development notes, review results, and cross-task knowledge in `DevFlowWorkspace/`.
 
+This is a file-first system:
+
+- plans are files
+- architecture deliverables are files
+- development logs are files
+- review results are files
+- summaries and shared recovery context are files
+
+The workflow should treat those files as the durable collaboration surface, not as optional byproducts of a chat session.
+
+Why this matters:
+
+- recovery is robust because work can resume from repository artifacts
+- human reviewers and agents can inspect the same source of truth
+- auditability is stronger because planning, execution, and review history are explicit
+- cross-task reuse is practical because later work can read prior summaries and architecture packages
+- orchestration is more deterministic because state is stored in files instead of transient runtime memory
+
 ## Repository Layout
 
 This repository uses the following structure:
@@ -47,6 +65,7 @@ This is an established repository convention and should be preserved.
 
 ## Source Of Truth
 
+- DevFlow is file-first: workflow state, plans, architecture packages, execution logs, reviews, and summaries should be persisted as files under `DevFlowWorkspace/`
 - `DevFlowWorkspace/tasks/TASK-xxx/meta.json` is the single source of truth for task stage state
 - `DevFlowWorkspace/architectures/ARCH-xxx/meta.json` is the single source of truth for one architecture package
 - `DevFlowWorkspace/active-tasks.json` is the source of truth for unfinished task indexing and focus-task selection
