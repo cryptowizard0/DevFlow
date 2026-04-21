@@ -19,7 +19,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate whether a DevFlow action is allowed.")
     parser.add_argument("--workspace", required=True, help="Path to DevFlowWorkspace")
     parser.add_argument("--task-id", help="Target task ID. Defaults to the focus task.")
-    parser.add_argument("--action", required=True, choices=["start", "update-plan", "approve-plan", "dev", "review", "done", "resume"], help="Action to validate")
+    parser.add_argument(
+        "--action",
+        required=True,
+        choices=["start", "update-plan", "approve-plan", "dev", "auto-dev", "review", "done", "resume"],
+        help="Action to validate",
+    )
     return parser.parse_args()
 
 

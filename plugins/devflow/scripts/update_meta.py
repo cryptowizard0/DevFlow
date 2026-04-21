@@ -64,6 +64,8 @@ def apply_transition(meta: dict[str, Any], transition: str) -> None:
         meta["approved_by"] = None
         meta["is_blocked"] = False
         meta["block_reason"] = None
+        meta["execution_mode"] = "manual"
+        meta["auto_loop_state"] = None
         meta["planner_agent_status"] = "live" if meta.get("planner_agent_id") else None
     elif transition == "plan-approved":
         meta["status"] = "plan_approved"
@@ -71,6 +73,10 @@ def apply_transition(meta: dict[str, Any], transition: str) -> None:
         meta["next_action"] = "dev"
         meta["is_blocked"] = False
         meta["block_reason"] = None
+        if meta.get("execution_mode") not in {"manual", "auto_dev"}:
+            meta["execution_mode"] = "manual"
+        if meta.get("auto_loop_state") not in {None, "running", "awaiting_done", "blocked"}:
+            meta["auto_loop_state"] = None
     elif transition == "dev-started":
         meta["status"] = "developing"
         meta["next_action"] = "dev"
@@ -90,6 +96,7 @@ def apply_transition(meta: dict[str, Any], transition: str) -> None:
         meta["next_action"] = "done"
         meta["is_blocked"] = False
         meta["block_reason"] = None
+        meta["auto_loop_state"] = "awaiting_done" if meta.get("execution_mode") == "auto_dev" else None
         meta["reviewer_agent_status"] = "stale" if meta.get("reviewer_agent_id") else None
     elif transition == "review-changes-requested":
         meta["status"] = "developing"
@@ -98,6 +105,7 @@ def apply_transition(meta: dict[str, Any], transition: str) -> None:
         meta["next_action"] = "dev"
         meta["is_blocked"] = False
         meta["block_reason"] = None
+        meta["auto_loop_state"] = "running" if meta.get("execution_mode") == "auto_dev" else None
         meta["reviewer_agent_status"] = "stale" if meta.get("reviewer_agent_id") else None
     elif transition == "review-blocked":
         meta["status"] = "developing"
@@ -105,6 +113,7 @@ def apply_transition(meta: dict[str, Any], transition: str) -> None:
         meta["last_reviewed_at"] = now_iso()
         meta["next_action"] = "review"
         meta["is_blocked"] = True
+        meta["auto_loop_state"] = "blocked" if meta.get("execution_mode") == "auto_dev" else None
         meta["reviewer_agent_status"] = "stale" if meta.get("reviewer_agent_id") else None
     elif transition == "task-done":
         meta["status"] = "done"
@@ -112,6 +121,8 @@ def apply_transition(meta: dict[str, Any], transition: str) -> None:
         meta["completed_at"] = now_iso()
         meta["is_blocked"] = False
         meta["block_reason"] = None
+        meta["execution_mode"] = "manual"
+        meta["auto_loop_state"] = None
         meta["planner_agent_status"] = "stale" if meta.get("planner_agent_id") else meta.get("planner_agent_status")
         meta["reviewer_agent_status"] = "stale" if meta.get("reviewer_agent_id") else meta.get("reviewer_agent_status")
     elif transition == "clear-block":

@@ -27,6 +27,15 @@ TASK_STATUS = (
     "reviewing",
     "done",
 )
+EXECUTION_MODES = (
+    "manual",
+    "auto_dev",
+)
+AUTO_LOOP_STATES = (
+    "running",
+    "awaiting_done",
+    "blocked",
+)
 
 
 SUMMARY_SECTION_KEYWORDS = {
@@ -355,6 +364,8 @@ def task_index_entry(workspace: Path, meta: dict[str, Any]) -> dict[str, Any]:
         "task_dir": str(task_dir_for_id(workspace, task_id)),
         "status": meta.get("status"),
         "is_blocked": meta.get("is_blocked", False),
+        "execution_mode": meta.get("execution_mode", "manual"),
+        "auto_loop_state": meta.get("auto_loop_state"),
         "worktree_path": meta.get("worktree_path"),
         "updated_at": meta.get("updated_at"),
     }
@@ -382,6 +393,8 @@ def focus_projection(active_index: dict[str, Any]) -> dict[str, Any]:
                 "title": entry.get("title"),
                 "task_dir": entry.get("task_dir"),
                 "status": entry.get("status"),
+                "execution_mode": entry.get("execution_mode"),
+                "auto_loop_state": entry.get("auto_loop_state"),
             }
 
     return empty_active_task_payload()
@@ -593,6 +606,8 @@ def init_meta(
         "last_reviewed_at": None,
         "review_passed_at": None,
         "completed_at": None,
+        "execution_mode": "manual",
+        "auto_loop_state": None,
         "worktree_path": worktree_path,
         "worktree_branch": worktree_branch,
         "worktree_base_ref": worktree_base_ref,
@@ -603,6 +618,73 @@ def init_meta(
     }
 
 
+def is_auto_dev_enabled(meta: dict[str, Any] | None) -> bool:
+    return bool(meta) and meta.get("execution_mode") == "auto_dev"
+
+
+def is_auto_dev_running(meta: dict[str, Any] | None) -> bool:
+    return is_auto_dev_enabled(meta) and meta.get("auto_loop_state") == "running"
+
+
+def is_auto_dev_resumable(meta: dict[str, Any] | None) -> bool:
+    return bool(meta) and is_auto_dev_running(meta) and meta.get("status") in {
+        "plan_approved",
+        "developing",
+        "reviewing",
+    }
+
+
+def can_restart_auto_dev(meta: dict[str, Any] | None) -> bool:
+    if not meta or meta.get("status") != "developing":
+        return False
+    if meta.get("next_action") not in {"dev", "review"}:
+        return False
+    if meta.get("execution_mode") != "auto_dev":
+        return False
+    return meta.get("auto_loop_state") in {None, "blocked"}
+
+
+def auto_dev_next_step(meta: dict[str, Any] | None) -> str | None:
+    if not meta or not is_auto_dev_enabled(meta):
+        return None
+
+    if meta.get("is_blocked") or meta.get("auto_loop_state") == "blocked":
+        return None
+
+    if meta.get("auto_loop_state") == "awaiting_done" or meta.get("next_action") == "done":
+        return None
+
+    if meta.get("auto_loop_state") != "running":
+        return None
+
+    status = meta.get("status")
+    next_action = meta.get("next_action")
+
+    if status == "plan_approved":
+        return "dev"
+    if status == "developing":
+        if next_action == "review":
+            return "review"
+        return "dev"
+    if status == "reviewing":
+        return "await_review_result"
+    return None
+
+
+def auto_dev_stop_reason(meta: dict[str, Any] | None) -> str | None:
+    if not meta or not is_auto_dev_enabled(meta):
+        return "manual_mode"
+    if meta.get("is_blocked") or meta.get("auto_loop_state") == "blocked":
+        return "blocked"
+    if meta.get("auto_loop_state") == "awaiting_done" or meta.get("next_action") == "done":
+        return "awaiting_done"
+    if meta.get("auto_loop_state") != "running":
+        return "not_running"
+    if auto_dev_next_step(meta):
+        return None
+    return "unsupported_state"
+
+
 def allowed_actions_for_meta(meta: dict[str, Any] | None) -> list[str]:
     if meta is None:
         return ["start"]
@@ -610,16 +692,21 @@ def allowed_actions_for_meta(meta: dict[str, Any] | None) -> list[str]:
     if status == "planning":
         return ["update-plan", "approve-plan", "resume"]
     if status == "plan_approved":
-        return ["update-plan", "dev", "resume"]
+        return ["update-plan", "dev", "auto-dev", "resume"]
     if status == "developing":
         actions = ["update-plan", "dev", "resume"]
+        if is_auto_dev_resumable(meta) or can_restart_auto_dev(meta):
+            actions.append("auto-dev")
         if meta.get("next_action") == "review":
             actions.append("review")
         if meta.get("next_action") == "done":
             actions.append("done")
         return actions
     if status == "reviewing":
-        return ["update-plan", "resume"]
+        actions = ["update-plan", "resume"]
+        if is_auto_dev_resumable(meta):
+            actions.append("auto-dev")
+        return actions
     if status == "done":
         return ["start", "resume"]
     return ["resume"]
@@ -670,6 +757,15 @@ def evaluate_gate(action: str, meta: dict[str, Any] | None, task_id: str | None 
             allowed_actions,
             task_id,
         )
+
+    if action == "auto-dev":
+        allowed = status == "plan_approved" or is_auto_dev_resumable(meta) or can_restart_auto_dev(meta)
+        reason = (
+            "Auto-dev requires plan_approved, a resumable auto-dev task, or a restartable blocked auto-dev task."
+            if not allowed
+            else "Auto-dev allowed."
+        )
+        return GateResult(action, allowed, reason, status, next_action, allowed_actions, task_id)
 
     if action == "review":
         allowed = status == "developing" and next_action == "review"
@@ -1002,6 +1098,9 @@ def build_task_summary_entry(task_dir: Path) -> dict[str, Any]:
         "title": meta.get("title"),
         "status": meta.get("status"),
         "next_action": meta.get("next_action"),
+        "execution_mode": meta.get("execution_mode", "manual"),
+        "auto_loop_state": meta.get("auto_loop_state"),
+        "auto_dev_next_step": auto_dev_next_step(meta),
         "is_blocked": meta.get("is_blocked", False),
         "block_reason": meta.get("block_reason"),
         "updated_at": meta.get("updated_at"),
@@ -1034,6 +1133,9 @@ def render_task_summary(task_dir: Path) -> str:
             f"- Title: {entry['title']}",
             f"- Stage Status: `{entry['status']}`",
             f"- Next Action: `{entry['next_action'] or 'n/a'}`",
+            f"- Execution Mode: `{entry['execution_mode'] or 'manual'}`",
+            f"- Auto Loop State: `{entry['auto_loop_state'] or 'n/a'}`",
+            f"- Auto Next Step: `{entry['auto_dev_next_step'] or 'n/a'}`",
             f"- Blocked: {'yes' if entry['is_blocked'] else 'no'}",
             f"- Block Reason: {entry['block_reason'] or 'n/a'}",
             f"- Worktree Path: `{entry['worktree_path'] or 'n/a'}`",
@@ -1160,6 +1262,8 @@ def render_global_summary(payload: dict[str, Any]) -> str:
                 "",
                 f"- Stage Status: `{entry['status']}`",
                 f"- Next Action: `{entry['next_action'] or 'n/a'}`",
+                f"- Execution Mode: `{entry['execution_mode'] or 'manual'}`",
+                f"- Auto Loop State: `{entry['auto_loop_state'] or 'n/a'}`",
                 f"- Worktree: `{entry['worktree_path'] or 'n/a'}`",
                 f"- Branch: `{entry['worktree_branch'] or 'n/a'}`",
                 f"- Architecture: `{entry['architecture_id'] or 'n/a'}` / module `{entry['module_id'] or 'n/a'}`",

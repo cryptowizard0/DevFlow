@@ -1,0 +1,10 @@
+{
+  "updated_at": null,
+  "focus_task_id": null,
+  "active_task_count": 0,
+  "done_task_count": 0,
+  "architecture_count": 0,
+  "published_architecture_count": 0,
+  "tasks": [],
+  "architectures": []
+}

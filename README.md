@@ -5,7 +5,7 @@ DevFlow is a Codex plugin for complex engineering work.
 It gives you two user-facing entrypoints:
 
 - `devflow-architect`: turn a fuzzy request into executable architecture documents
-- `devflow`: run implementation through an explicit `plan -> dev -> review -> done` workflow
+- `devflow-task`: run implementation through an explicit `plan -> dev -> review -> done` workflow, with an optional `auto-dev` loop
 
 The key idea is simple: architecture and implementation are separate, but compatible.
 
@@ -18,7 +18,7 @@ flowchart LR
     U["User Request"] --> A["devflow-architect<br/>Clarify requirements"]
     A --> B["ARCH-xxx<br/>Architecture package"]
     B --> C["Module documents<br/>modules/<module-id>.md"]
-    C --> D["devflow start<br/>Bind architecture_id + module_id"]
+    C --> D["devflow-task plan<br/>Bind architecture_id + module_id"]
     D --> E["TASK-xxx<br/>plan -> dev -> review -> done"]
     E --> F["Code + review output + task summaries"]
 ```
@@ -58,7 +58,7 @@ DevFlow stores its working state in `DevFlowWorkspace/`, including:
 | Entry | What it does | When to use it |
 | --- | --- | --- |
 | `devflow-architect` | Clarifies requirements through multi-round discussion and writes architecture docs under `DevFlowWorkspace/architectures/ARCH-xxx/` | The request is still vague, the system shape is unclear, or you want module-level design before coding |
-| `devflow` | Runs tracked implementation work through `start`, `update-plan`, `approve-plan`, `dev`, `review`, `done`, `resume` | You already know what to build, or you already have an architecture package and want to implement a module |
+| `devflow-task` | Runs tracked implementation work through `plan`, `update-plan`, `approve-plan`, `dev`, `auto-dev`, `review`, `done`, `resume` | You already know what to build, or you already have an architecture package and want to implement a module |
 
 Internal skills exist, but they are not user entrypoints:
 
@@ -71,12 +71,12 @@ Internal skills exist, but they are not user entrypoints:
 Before choosing a path, it helps to understand the layering:
 
 - `devflow-architect` works at the system-design layer
-- `devflow` works at the task-execution layer
+- `devflow-task` works at the task-execution layer
 - one architecture package may drive one or more implementation tasks
-- each task runs the lower-level `plan -> dev -> review -> done` workflow
+- each task runs the lower-level `plan -> dev -> review -> done` workflow, with an optional `auto-dev` execution mode after plan approval
 
 `devflow-architect` is the upper layer. It defines the system, modules, data structures, constraints, and delivery order.
-`devflow` is the lower layer. It takes one bounded implementation task and executes it through the tracked task workflow.
+`devflow-task` is the lower layer. It takes one bounded implementation task and executes it through the tracked task workflow.
 
 ```mermaid
 flowchart TD
@@ -95,40 +95,41 @@ This is the recommended path for medium or large systems.
 
 1. Use `devflow-architect` to clarify the problem and publish an architecture package.
 2. Review the generated `ARCH-xxx` package.
-3. Start one or more DevFlow tasks, each bound to one module:
-   - `start architecture_id=xxx module_id=xxx`
+3. Create one or more DevFlow tasks, each bound to one module:
+   - `plan architecture_id=xxx module_id=xxx`
    - `architecture_id` and `module_id` are defined in ARCH-xxx/meta.json
 4. Run the normal DevFlow lifecycle on each task:
    - `update-plan`
    - `approve-plan`
    - `dev`
+   - optional `auto-dev`
    - `review`
    - `done`
 
 Typical requests:
 
 - "Use DevFlow Architect to design this system before implementation."
-- "Use DevFlow to start a task for module `auth-service` in `ARCH-001`."
+- "Use devflow-task plan for module `auth-service` in `ARCH-001`."
 - "Approve the current DevFlow plan."
-- "Use DevFlow to continue development on `TASK-003`."
+- "Use devflow-task dev to continue development on `TASK-003`."
 
 ### Path 2: Build Directly With DevFlow
 
 Use this when the request is already implementation-ready.
 
-1. Start a task with `devflow`
+1. Create a task with `devflow-task plan`
 2. Iterate on the plan
 3. Explicitly approve the plan
 4. Implement
-5. Review
+5. Review manually, or use `auto-dev` to keep looping `dev -> review` until review stops the loop
 6. Finish with `done`
 
 Typical requests:
 
-- "Use DevFlow to start a task for this refactor."
-- "Use DevFlow to update the current plan."
-- "Use DevFlow to review the current task."
-- "Resume the active DevFlow task."
+- "Use devflow-task plan for this refactor."
+- "Use devflow-task update-plan on the current task."
+- "Use devflow-task review on the current task."
+- "Resume the active task."
 
 ## Architect Workflow
 
@@ -175,12 +176,13 @@ For example, a simple snake web game may reasonably produce only one module docu
 
 ## DevFlow Task Workflow
 
-`devflow` supports these explicit actions:
+`devflow-task` supports these explicit actions:
 
-- `start`
+- `plan`
 - `update-plan`
 - `approve-plan`
 - `dev`
+- `auto-dev`
 - `review`
 - `done`
 - `resume`
@@ -189,10 +191,12 @@ Normal lifecycle:
 
 ```mermaid
 flowchart LR
-    S["start"] --> P["update-plan"]
+    S["plan"] --> P["update-plan"]
     P --> A["approve-plan"]
     A --> D["dev"]
+    A --> AD["auto-dev"]
     D --> R["review"]
+    AD --> R
     R --> D
     R --> F["done"]
 ```
@@ -201,13 +205,17 @@ Key rules:
 
 - never skip planning
 - never run `dev` before `approve-plan`
+- never run `auto-dev` before `approve-plan`
 - review does not modify code
 - review pass means "ready to finish", not "already finished"
 - only explicit `done` completes a task
+- `auto-dev` is optional and independent from the manual path
+- `auto-dev` stops on `pass` at `next_action=done`
+- `auto-dev` stops on `blocked` and does not auto-retry
 
 ## How Architecture Connects To DevFlow
 
-When you start a DevFlow task, you may bind it to:
+When you create a DevFlow task with `devflow-task plan`, you may bind it to:
 
 - `architecture_id`
 - `module_id`
@@ -259,7 +267,7 @@ Important meanings:
 - `active-tasks.json`: source of truth for unfinished task indexing and focus task
 - `active-task.json`: compatibility projection for the focus task
 - `global-summary.json` / `global-summary.md`: cross-task shared summary
-- `tasks/TASK-xxx/meta.json`: source of truth for one task's stage state
+- `tasks/TASK-xxx/meta.json`: source of truth for one task's stage state and optional `auto-dev` execution state
 - `architectures/ARCH-xxx/meta.json`: source of truth for one architecture package
 - `summary.md`: local handoff/recovery summary, not the primary state source
 
@@ -290,7 +298,7 @@ The plugin source lives in this repository, while Codex discovers it through tha
 Important paths:
 
 - `plugins/devflow/.codex-plugin/plugin.json`: plugin manifest
-- `plugins/devflow/skills/devflow/SKILL.md`: public implementation workflow entrypoint
+- `plugins/devflow/skills/devflow-task/SKILL.md`: public implementation workflow entrypoint
 - `plugins/devflow/skills/devflow-architect/SKILL.md`: public architecture workflow entrypoint
 - `plugins/devflow/scripts/`: deterministic helpers for workspace/state operations
 - `plugins/devflow/assets/console/index.html`: static console
@@ -314,3 +322,5 @@ Not fully implemented yet:
 - a first-class orchestrator loop for `devflow-architect`
 
 At this stage, DevFlow is a strong workflow skeleton and file protocol, not yet a fully closed-loop orchestrator.
+
+`auto-dev` now persists enough execution state for the public skill to resume an in-flight `dev -> review` loop without changing the core stage model.
