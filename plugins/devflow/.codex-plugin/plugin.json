@@ -1,12 +1,12 @@
 {
   "name": "devflow",
   "version": "0.1.0",
-  "description": "Structured architecture, plan, dev, auto-dev, and review workflow for large development tasks with task state and markdown artifacts.",
+  "description": "Structured architecture, plan, dev, auto-dev, and review workflow for large development tasks with persisted task state and markdown artifacts.",
   "skills": "./skills/",
   "interface": {
     "displayName": "DevFlow",
-    "shortDescription": "Plan, architect, build, auto-build, and review complex engineering work",
-    "longDescription": "Coordinate complex software tasks through architecture discovery plus an explicit plan, optional auto-dev execution loop, implementation, and review workflow with persisted task state and markdown artifacts.",
+    "shortDescription": "Architect with DevFlow, execute work with devflow-task",
+    "longDescription": "Coordinate complex software tasks through DevFlow architecture discovery plus the `devflow-task` implementation workflow, optional auto-dev execution loop, and persisted task state and markdown artifacts.",
     "developerName": "webbergao",
     "category": "Coding",
     "capabilities": [
@@ -14,11 +14,11 @@
       "Write"
     ],
     "defaultPrompt": [
-      "Use DevFlow to start a tracked implementation task",
+      "Use devflow-task start to create a tracked implementation task",
       "Use DevFlow Architect to turn this feature request into executable architecture docs",
       "Create a DevFlow architecture package for this system and then bind a task to one module",
-      "Resume the active DevFlow task and tell me the next action",
-      "Run DevFlow auto-dev, review, or complete the current task"
+      "Resume the active task and tell me the next action",
+      "Run devflow-task auto-dev, review, or done on the current task"
     ],
     "brandColor": "#8DB6FF",
     "composerIcon": "./assets/icon.svg",

@@ -1,11 +1,11 @@
 ---
-name: devflow
-description: Use when the user wants to manage a complex development task through an explicit plan -> dev/review or optional auto-dev loop workflow with persisted task state and markdown artifacts. This is a public DevFlow workflow entrypoint.
+name: devflow-task
+description: Use when the user wants to manage a complex development task through an explicit plan -> dev/review or optional auto-dev loop workflow with persisted task state and markdown artifacts. This is the public `devflow-task` workflow entrypoint for DevFlow.
 ---
 
-# DevFlow
+# DevFlow Task
 
-DevFlow is a public entrypoint for a staged development workflow.
+`devflow-task` is the public implementation entrypoint for a staged DevFlow workflow.
 
 ## Supported actions
 
