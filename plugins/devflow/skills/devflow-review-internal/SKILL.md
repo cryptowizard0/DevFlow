@@ -17,6 +17,7 @@ This skill is only for DevFlow-internal review orchestration.
   - `changes_requested`
   - `blocked`
 - Run under the fixed per-run subagent name `Reviewer`.
+- Auto-dev may invoke this reviewer repeatedly across multiple review rounds for the same task.
 
 ## Output contract
 

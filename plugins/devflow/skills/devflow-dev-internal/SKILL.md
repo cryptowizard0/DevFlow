@@ -7,6 +7,8 @@ description: Internal DevFlow development guidance. Use only when the DevFlow or
 
 This skill supports the main DevFlow agent during the implementation phase.
 
+It may be used from a normal `dev` action or from the looped `auto-dev` action.
+
 ## Responsibilities
 
 - Select the next bounded implementation slice from the approved plan.

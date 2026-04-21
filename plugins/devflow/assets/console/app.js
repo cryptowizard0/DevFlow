@@ -641,6 +641,13 @@ function renderTaskList() {
                 task.meta.review_round ?? 0
               )}</span>
               ${
+                task.meta.execution_mode === "auto_dev"
+                  ? `<span class="mini-badge" data-tone="${
+                      task.meta.auto_loop_state === "blocked" ? "danger" : "accent"
+                    }">auto-dev${task.meta.auto_loop_state ? `:${escapeHtml(task.meta.auto_loop_state)}` : ""}</span>`
+                  : ""
+              }
+              ${
                 task.meta.worktree_branch
                   ? `<span class="mini-badge" data-tone="neutral">${escapeHtml(task.meta.worktree_branch)}</span>`
                   : ""
@@ -675,6 +682,16 @@ function renderTaskDetail() {
     task.isActive && !task.isFocus ? '<span class="mini-badge" data-tone="warn">并行 active</span>' : "",
     task.meta.next_action
       ? `<span class="mini-badge" data-tone="warn">next: ${escapeHtml(task.meta.next_action)}</span>`
+      : "",
+    task.meta.execution_mode === "auto_dev"
+      ? `<span class="mini-badge" data-tone="${
+          task.meta.auto_loop_state === "blocked" ? "danger" : "accent"
+        }">auto-dev: ${escapeHtml(task.meta.auto_loop_state || "running")}</span>`
+      : "",
+    task.meta.execution_mode === "auto_dev" && task.meta.auto_loop_state === "running"
+      ? `<span class="mini-badge" data-tone="neutral">auto-next: ${escapeHtml(
+          task.meta.next_action === "review" ? "review" : task.meta.status === "reviewing" ? "await_review_result" : "dev"
+        )}</span>`
       : "",
     task.meta.last_review_verdict
       ? `<span class="mini-badge" data-tone="${
@@ -736,6 +753,14 @@ function renderTaskDetail() {
       <div class="info-cell">
         <span class="info-label">Next Action</span>
         <span class="info-value">${escapeHtml(task.meta.next_action || "n/a")}</span>
+      </div>
+      <div class="info-cell">
+        <span class="info-label">Execution Mode</span>
+        <span class="info-value">${escapeHtml(task.meta.execution_mode || "manual")}</span>
+      </div>
+      <div class="info-cell">
+        <span class="info-label">Auto Loop State</span>
+        <span class="info-value">${escapeHtml(task.meta.auto_loop_state || "n/a")}</span>
       </div>
       <div class="info-cell">
         <span class="info-label">Blocked</span>

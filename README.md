@@ -5,7 +5,7 @@ DevFlow is a Codex plugin for complex engineering work.
 It gives you two user-facing entrypoints:
 
 - `devflow-architect`: turn a fuzzy request into executable architecture documents
-- `devflow`: run implementation through an explicit `plan -> dev -> review -> done` workflow
+- `devflow`: run implementation through an explicit `plan -> dev -> review -> done` workflow, with an optional `auto-dev` loop
 
 The key idea is simple: architecture and implementation are separate, but compatible.
 
@@ -58,7 +58,7 @@ DevFlow stores its working state in `DevFlowWorkspace/`, including:
 | Entry | What it does | When to use it |
 | --- | --- | --- |
 | `devflow-architect` | Clarifies requirements through multi-round discussion and writes architecture docs under `DevFlowWorkspace/architectures/ARCH-xxx/` | The request is still vague, the system shape is unclear, or you want module-level design before coding |
-| `devflow` | Runs tracked implementation work through `start`, `update-plan`, `approve-plan`, `dev`, `review`, `done`, `resume` | You already know what to build, or you already have an architecture package and want to implement a module |
+| `devflow` | Runs tracked implementation work through `start`, `update-plan`, `approve-plan`, `dev`, `auto-dev`, `review`, `done`, `resume` | You already know what to build, or you already have an architecture package and want to implement a module |
 
 Internal skills exist, but they are not user entrypoints:
 
@@ -73,7 +73,7 @@ Before choosing a path, it helps to understand the layering:
 - `devflow-architect` works at the system-design layer
 - `devflow` works at the task-execution layer
 - one architecture package may drive one or more implementation tasks
-- each task runs the lower-level `plan -> dev -> review -> done` workflow
+- each task runs the lower-level `plan -> dev -> review -> done` workflow, with an optional `auto-dev` execution mode after plan approval
 
 `devflow-architect` is the upper layer. It defines the system, modules, data structures, constraints, and delivery order.
 `devflow` is the lower layer. It takes one bounded implementation task and executes it through the tracked task workflow.
@@ -102,6 +102,7 @@ This is the recommended path for medium or large systems.
    - `update-plan`
    - `approve-plan`
    - `dev`
+   - optional `auto-dev`
    - `review`
    - `done`
 
@@ -120,7 +121,7 @@ Use this when the request is already implementation-ready.
 2. Iterate on the plan
 3. Explicitly approve the plan
 4. Implement
-5. Review
+5. Review manually, or use `auto-dev` to keep looping `dev -> review` until review stops the loop
 6. Finish with `done`
 
 Typical requests:
@@ -181,6 +182,7 @@ For example, a simple snake web game may reasonably produce only one module docu
 - `update-plan`
 - `approve-plan`
 - `dev`
+- `auto-dev`
 - `review`
 - `done`
 - `resume`
@@ -192,7 +194,9 @@ flowchart LR
     S["start"] --> P["update-plan"]
     P --> A["approve-plan"]
     A --> D["dev"]
+    A --> AD["auto-dev"]
     D --> R["review"]
+    AD --> R
     R --> D
     R --> F["done"]
 ```
@@ -201,9 +205,13 @@ Key rules:
 
 - never skip planning
 - never run `dev` before `approve-plan`
+- never run `auto-dev` before `approve-plan`
 - review does not modify code
 - review pass means "ready to finish", not "already finished"
 - only explicit `done` completes a task
+- `auto-dev` is optional and independent from the manual path
+- `auto-dev` stops on `pass` at `next_action=done`
+- `auto-dev` stops on `blocked` and does not auto-retry
 
 ## How Architecture Connects To DevFlow
 
@@ -259,7 +267,7 @@ Important meanings:
 - `active-tasks.json`: source of truth for unfinished task indexing and focus task
 - `active-task.json`: compatibility projection for the focus task
 - `global-summary.json` / `global-summary.md`: cross-task shared summary
-- `tasks/TASK-xxx/meta.json`: source of truth for one task's stage state
+- `tasks/TASK-xxx/meta.json`: source of truth for one task's stage state and optional `auto-dev` execution state
 - `architectures/ARCH-xxx/meta.json`: source of truth for one architecture package
 - `summary.md`: local handoff/recovery summary, not the primary state source
 
@@ -314,3 +322,5 @@ Not fully implemented yet:
 - a first-class orchestrator loop for `devflow-architect`
 
 At this stage, DevFlow is a strong workflow skeleton and file protocol, not yet a fully closed-loop orchestrator.
+
+`auto-dev` now persists enough execution state for the public skill to resume an in-flight `dev -> review` loop without changing the core stage model.

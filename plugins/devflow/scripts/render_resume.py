@@ -11,7 +11,14 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from devflow_lib import ensure_workspace, load_active_tasks, load_meta, read_json
+from devflow_lib import (
+    auto_dev_next_step,
+    auto_dev_stop_reason,
+    ensure_workspace,
+    load_active_tasks,
+    load_meta,
+    read_json,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -47,6 +54,10 @@ def main() -> int:
         f"- Current Step: {meta.get('current_step') or 'n/a'}",
         f"- Last Completed Step: {meta.get('last_completed_step') or 'n/a'}",
         f"- Next Action: {meta.get('next_action') or 'n/a'}",
+        f"- Execution Mode: {meta.get('execution_mode') or 'manual'}",
+        f"- Auto Loop State: {meta.get('auto_loop_state') or 'n/a'}",
+        f"- Auto Next Step: {auto_dev_next_step(meta) or 'n/a'}",
+        f"- Auto Stop Reason: {auto_dev_stop_reason(meta) or 'n/a'}",
         f"- Last Review Verdict: {meta.get('last_review_verdict') or 'n/a'}",
         f"- Blocked: {'yes' if meta.get('is_blocked') else 'no'}",
         f"- Block Reason: {meta.get('block_reason') or 'n/a'}",
