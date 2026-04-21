@@ -14,7 +14,7 @@
       "Write"
     ],
     "defaultPrompt": [
-      "Use devflow-task start to create a tracked implementation task",
+      "Use devflow-task plan to create a tracked implementation task",
       "Use DevFlow Architect to turn this feature request into executable architecture docs",
       "Create a DevFlow architecture package for this system and then bind a task to one module",
       "Resume the active task and tell me the next action",

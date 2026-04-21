@@ -18,7 +18,7 @@ flowchart LR
     U["User Request"] --> A["devflow-architect<br/>Clarify requirements"]
     A --> B["ARCH-xxx<br/>Architecture package"]
     B --> C["Module documents<br/>modules/<module-id>.md"]
-    C --> D["devflow-task start<br/>Bind architecture_id + module_id"]
+    C --> D["devflow-task plan<br/>Bind architecture_id + module_id"]
     D --> E["TASK-xxx<br/>plan -> dev -> review -> done"]
     E --> F["Code + review output + task summaries"]
 ```
@@ -58,7 +58,7 @@ DevFlow stores its working state in `DevFlowWorkspace/`, including:
 | Entry | What it does | When to use it |
 | --- | --- | --- |
 | `devflow-architect` | Clarifies requirements through multi-round discussion and writes architecture docs under `DevFlowWorkspace/architectures/ARCH-xxx/` | The request is still vague, the system shape is unclear, or you want module-level design before coding |
-| `devflow-task` | Runs tracked implementation work through `start`, `update-plan`, `approve-plan`, `dev`, `auto-dev`, `review`, `done`, `resume` | You already know what to build, or you already have an architecture package and want to implement a module |
+| `devflow-task` | Runs tracked implementation work through `plan`, `update-plan`, `approve-plan`, `dev`, `auto-dev`, `review`, `done`, `resume` | You already know what to build, or you already have an architecture package and want to implement a module |
 
 Internal skills exist, but they are not user entrypoints:
 
@@ -95,8 +95,8 @@ This is the recommended path for medium or large systems.
 
 1. Use `devflow-architect` to clarify the problem and publish an architecture package.
 2. Review the generated `ARCH-xxx` package.
-3. Start one or more DevFlow tasks, each bound to one module:
-   - `start architecture_id=xxx module_id=xxx`
+3. Create one or more DevFlow tasks, each bound to one module:
+   - `plan architecture_id=xxx module_id=xxx`
    - `architecture_id` and `module_id` are defined in ARCH-xxx/meta.json
 4. Run the normal DevFlow lifecycle on each task:
    - `update-plan`
@@ -109,7 +109,7 @@ This is the recommended path for medium or large systems.
 Typical requests:
 
 - "Use DevFlow Architect to design this system before implementation."
-- "Use devflow-task start for module `auth-service` in `ARCH-001`."
+- "Use devflow-task plan for module `auth-service` in `ARCH-001`."
 - "Approve the current DevFlow plan."
 - "Use devflow-task dev to continue development on `TASK-003`."
 
@@ -117,7 +117,7 @@ Typical requests:
 
 Use this when the request is already implementation-ready.
 
-1. Start a task with `devflow-task start`
+1. Create a task with `devflow-task plan`
 2. Iterate on the plan
 3. Explicitly approve the plan
 4. Implement
@@ -126,7 +126,7 @@ Use this when the request is already implementation-ready.
 
 Typical requests:
 
-- "Use devflow-task start for this refactor."
+- "Use devflow-task plan for this refactor."
 - "Use devflow-task update-plan on the current task."
 - "Use devflow-task review on the current task."
 - "Resume the active task."
@@ -178,7 +178,7 @@ For example, a simple snake web game may reasonably produce only one module docu
 
 `devflow-task` supports these explicit actions:
 
-- `start`
+- `plan`
 - `update-plan`
 - `approve-plan`
 - `dev`
@@ -191,7 +191,7 @@ Normal lifecycle:
 
 ```mermaid
 flowchart LR
-    S["start"] --> P["update-plan"]
+    S["plan"] --> P["update-plan"]
     P --> A["approve-plan"]
     A --> D["dev"]
     A --> AD["auto-dev"]
@@ -215,7 +215,7 @@ Key rules:
 
 ## How Architecture Connects To DevFlow
 
-When you start a DevFlow task, you may bind it to:
+When you create a DevFlow task with `devflow-task plan`, you may bind it to:
 
 - `architecture_id`
 - `module_id`

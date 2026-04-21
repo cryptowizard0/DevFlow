@@ -11,7 +11,7 @@ description: Use when the user wants to manage a complex development task throug
 
 Use explicit action words:
 
-- `start`: create a new tracked task, write `request.md`, create the task worktree, set status to `planning`, set the new task as the focus task, and invoke the internal planning skill
+- `plan`: create a new tracked task, write `request.md`, create the task worktree, set status to `planning`, set the new task as the focus task, and invoke the internal planning skill
 - `update-plan`: revise the current plan, append `plan-history.md`, increment `plan_version`, reset approval, and refresh both `summary.md` and the workspace global summary
 - `approve-plan`: only after the user explicitly approves the plan; move the target task to `plan_approved`
 - `dev`: execute the next bounded implementation slice in the target task's own worktree and append to `dev.md`
@@ -20,7 +20,7 @@ Use explicit action words:
 - `done`: only after a passing review; refresh `summary.md`, mark the task complete, and remove it from `active-tasks.json`
 - `resume`: read the focus task plus the parallel active-task index; if the task is in persisted `auto-dev` running mode, continue that loop instead of only printing status
 
-`start` may optionally bind the new task to an architecture package by recording:
+`plan` may optionally bind the new task to an architecture package by recording:
 
 - `architecture_id`
 - `module_id`
