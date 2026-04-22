@@ -13,6 +13,7 @@ This skill is only for DevFlow-internal orchestration.
 - Keep the plan implementation-oriented and decision-complete.
 - Reflect user constraints, repo context, prior approved or draft plan state, and any useful information from `global-summary.md`.
 - Run under the fixed task-scoped subagent name `Planner`.
+- Read only the task-scoped handoff files supplied by the orchestrator and write output only through `result.md` / `result.json`.
 
 ## Output contract
 

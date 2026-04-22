@@ -15,6 +15,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from devflow_lib import (
     load_meta,
+    normalize_task_meta_runtime,
     normalize_task_architecture_binding,
     now_iso,
     sync_workspace_state,
@@ -56,6 +57,7 @@ def parse_value(raw: str) -> Any:
 
 
 def apply_transition(meta: dict[str, Any], transition: str) -> None:
+    normalize_task_meta_runtime(meta)
     if transition == "plan-updated":
         meta["status"] = "planning"
         meta["plan_version"] = int(meta.get("plan_version", 0)) + 1
@@ -123,6 +125,13 @@ def apply_transition(meta: dict[str, Any], transition: str) -> None:
         meta["block_reason"] = None
         meta["execution_mode"] = "manual"
         meta["auto_loop_state"] = None
+        meta["active_subagent_role"] = None
+        meta["active_subagent_run_id"] = None
+        meta["active_subagent_name"] = None
+        meta["active_subagent_id"] = None
+        meta["active_subagent_status"] = None
+        meta["active_subagent_request_path"] = None
+        meta["active_subagent_result_path"] = None
         meta["planner_agent_status"] = "stale" if meta.get("planner_agent_id") else meta.get("planner_agent_status")
         meta["reviewer_agent_status"] = "stale" if meta.get("reviewer_agent_id") else meta.get("reviewer_agent_status")
     elif transition == "clear-block":
@@ -134,6 +143,7 @@ def main() -> int:
     args = parse_args()
     workspace = Path(args.workspace).resolve()
     meta_path, meta = load_meta(workspace, args.task_id)
+    normalize_task_meta_runtime(meta)
     task_id = meta.get("task_id")
 
     if args.transition:

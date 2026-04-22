@@ -74,7 +74,7 @@ Before choosing a path, it helps to understand the layering:
 - `devflow-task` works at the task-execution layer
 - one architecture package may drive one or more implementation tasks
 - each task runs the lower-level `plan -> dev -> review -> done` workflow, with an optional `auto-dev` execution mode after plan approval
-- within `devflow-task`, orchestrator control and `dev` execution should stay separate even when the same main agent performs both
+- within `devflow-task`, orchestrator control is separate from `Planner` / `Dev` / `Reviewer` execution, and all role context is passed through task-scoped files
 
 `devflow-architect` is the upper layer. It defines the system, modules, data structures, constraints, and delivery order.
 `devflow-task` is the lower layer. It takes one bounded implementation task and executes it through the tracked task workflow.
@@ -207,7 +207,7 @@ Key rules:
 - never skip planning
 - never run `dev` before `approve-plan`
 - never run `auto-dev` before `approve-plan`
-- treat orchestrator state management and `dev` execution as separate responsibilities
+- treat orchestrator state management and `Planner` / `Dev` / `Reviewer` execution as separate responsibilities
 - review does not modify code
 - review pass means "ready to finish", not "already finished"
 - only explicit `done` completes a task
@@ -233,6 +233,22 @@ When a task is bound, downstream development and architecture-sensitive review s
 5. `modules/<module-id>.md`
 
 This lets one architecture package drive multiple implementation tasks cleanly.
+
+## Subagent Handoffs
+
+`devflow-task` is the control plane. It does not carry implementation context directly into `dev`.
+
+For every `plan`, `dev`, and `review` round, the orchestrator creates a task-scoped handoff under:
+
+```text
+DevFlowWorkspace/tasks/TASK-xxx/subagent-runs/<ROLE-NNN>/
+├── request.json
+├── context.md
+├── result.md
+└── result.json
+```
+
+`Planner`, `Dev`, and `Reviewer` are each created as fresh subagents per round. They read only the handoff files plus the task worktree, then report completion through `result.md` and `result.json`. `resume` is file-first: it finalizes completed result files or redispatches the pending handoff. It never depends on a live chat session to continue a task.
 
 ## Core Workspace Files
 

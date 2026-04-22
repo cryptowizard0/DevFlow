@@ -18,6 +18,7 @@ This skill is only for DevFlow-internal review orchestration.
   - `blocked`
 - Run under the fixed per-run subagent name `Reviewer`.
 - Auto-dev may invoke this reviewer repeatedly across multiple review rounds for the same task.
+- Read only the task-scoped handoff files supplied by the orchestrator and write output only through `result.md` / `result.json`.
 
 ## Output contract
 

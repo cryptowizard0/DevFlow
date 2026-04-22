@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Execution-plane helpers for DevFlow development slices."""
+"""Execution-plane result helpers for DevFlow development slices."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ import sys
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+from agent_runtime import load_run_result
 from devflow_lib import now_iso, read_text, write_text
 
 
@@ -25,6 +26,7 @@ class DevExecutionResult:
     commands: list[str] | None = None
     next_action: str = "review"
     error: str | None = None
+    artifact_path: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -35,6 +37,7 @@ class DevExecutionResult:
             "commands": self.commands or [],
             "next_action": self.next_action,
             "error": self.error,
+            "artifact_path": self.artifact_path,
         }
 
 
@@ -80,28 +83,20 @@ def append_dev_log(
     return task_dir / "dev.md"
 
 
-def run_dev_slice(
-    task_dir: Path,
-    summary: str,
-    notes: str | None = None,
-    files_touched: list[str] | None = None,
-    commands: list[str] | None = None,
-) -> DevExecutionResult:
-    try:
-        append_dev_log(
-            task_dir,
-            summary=summary,
-            notes=notes,
-            files_touched=files_touched,
-            commands=commands,
-        )
-    except ValueError as exc:
-        return DevExecutionResult(status="failed", summary=summary, error=str(exc))
-
+def load_dev_result(result_json_path: Path, result_md_path: Path | None = None) -> DevExecutionResult:
+    run_result = load_run_result(result_json_path)
+    resolved_md_path = result_md_path or (
+        Path(str(run_result.artifact_path)).expanduser().resolve() if run_result.artifact_path else None
+    )
+    notes = None
+    if resolved_md_path and resolved_md_path.exists():
+        notes = resolved_md_path.read_text(encoding="utf-8").strip() or None
     return DevExecutionResult(
-        status="completed",
-        summary=summary,
+        status=run_result.status,
+        summary=run_result.summary or "",
         notes=notes,
-        files_touched=files_touched or [],
-        commands=commands or [],
+        files_touched=run_result.files_touched,
+        commands=run_result.commands,
+        error=run_result.error,
+        artifact_path=run_result.artifact_path,
     )

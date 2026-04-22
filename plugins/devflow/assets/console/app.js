@@ -648,6 +648,13 @@ function renderTaskList() {
                   : ""
               }
               ${
+                task.meta.active_subagent_role
+                  ? `<span class="mini-badge" data-tone="warn">${escapeHtml(
+                      `${task.meta.active_subagent_role}:${task.meta.active_subagent_run_id || "pending"}`
+                    )}</span>`
+                  : ""
+              }
+              ${
                 task.meta.worktree_branch
                   ? `<span class="mini-badge" data-tone="neutral">${escapeHtml(task.meta.worktree_branch)}</span>`
                   : ""
@@ -697,6 +704,11 @@ function renderTaskDetail() {
       ? `<span class="mini-badge" data-tone="${
           task.meta.last_review_verdict === "pass" ? "accent" : "danger"
         }">review: ${escapeHtml(formatVerdict(task.meta.last_review_verdict))}</span>`
+      : "",
+    task.meta.active_subagent_role
+      ? `<span class="mini-badge" data-tone="warn">${escapeHtml(
+          `active: ${task.meta.active_subagent_role}/${task.meta.active_subagent_run_id || "pending"}`
+        )}</span>`
       : "",
     task.meta.is_blocked
       ? `<span class="mini-badge" data-tone="danger">${escapeHtml(
@@ -781,6 +793,22 @@ function renderTaskDetail() {
       <div class="info-cell">
         <span class="info-label">Global Summary Sync</span>
         <span class="info-value">${escapeHtml(formatDate(task.meta.global_summary_updated_at))}</span>
+      </div>
+      <div class="info-cell">
+        <span class="info-label">Active Subagent</span>
+        <span class="info-value">${escapeHtml(task.meta.active_subagent_role || "n/a")}</span>
+      </div>
+      <div class="info-cell">
+        <span class="info-label">Active Run ID</span>
+        <span class="info-value">${escapeHtml(task.meta.active_subagent_run_id || "n/a")}</span>
+      </div>
+      <div class="info-cell">
+        <span class="info-label">Active Status</span>
+        <span class="info-value">${escapeHtml(task.meta.active_subagent_status || "n/a")}</span>
+      </div>
+      <div class="info-cell">
+        <span class="info-label">Active Result Path</span>
+        <span class="info-value">${escapeHtml(task.meta.active_subagent_result_path || "n/a")}</span>
       </div>
     </div>
 
