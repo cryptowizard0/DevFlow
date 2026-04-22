@@ -124,6 +124,10 @@ Use these deterministic helpers for file and state operations:
 - `plugins/devflow/scripts/init_architecture.py`
 - `plugins/devflow/scripts/check_gate.py`
 - `plugins/devflow/scripts/auto_dev.py`
+- `plugins/devflow/scripts/orchestrate_task.py`
+- `plugins/devflow/scripts/orchestrator_lib.py`
+- `plugins/devflow/scripts/dev_executor.py`
+- `plugins/devflow/scripts/agent_runtime.py`
 - `plugins/devflow/scripts/update_meta.py`
 - `plugins/devflow/scripts/update_architecture_meta.py`
 - `plugins/devflow/scripts/append_plan_history.py`
@@ -149,5 +153,7 @@ This console is a bundled static asset, not a first-class plugin app. Use it as 
 - `Planner` is task-scoped and should be reused across plan iterations when the live session is available.
 - Review must be delegated to the internal `devflow-review-internal` skill through a fixed-name subagent called `Reviewer`.
 - Development is executed by the main agent, optionally guided by `devflow-dev-internal`, both for manual `dev` and looped `auto-dev`.
+- Even when the same main agent performs both roles, keep orchestration control and `dev` execution separated in implementation structure.
+- Repo-local scripts may persist planner/reviewer artifacts supplied by the host orchestrator runtime; they must not pretend a repo-local runtime exists when none is configured.
 - `auto-dev` should persist `execution_mode=auto_dev` with `auto_loop_state=running`, stop on `pass` at `next_action=done`, and stop on `blocked` without retrying.
 - If a required subagent cannot be started or fails, mark the task blocked in `meta.json` and stop instead of silently degrading.
