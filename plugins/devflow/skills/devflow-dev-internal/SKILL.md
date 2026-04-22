@@ -22,6 +22,8 @@ It may be used from a normal `dev` action or from the looped `auto-dev` action.
 - Implement code changes only inside the current task's assigned worktree.
 - Collect concise development notes for `dev.md`.
 - Prepare a succinct change summary input for later review.
+- Treat `dev` as the execution plane. Do not absorb orchestrator state-machine decisions into the implementation slice.
+- When the repo uses `plugins/devflow/scripts/dev_executor.py`, keep development logging and execution-result shaping aligned with that boundary.
 
 ## Hard constraints
 

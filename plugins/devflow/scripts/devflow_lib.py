@@ -599,9 +599,11 @@ def init_meta(
         "planner_agent_name": "Planner",
         "planner_agent_id": None,
         "planner_agent_status": None,
+        "planner_session_resumable": False,
         "reviewer_agent_name": "Reviewer",
         "reviewer_agent_id": None,
         "reviewer_agent_status": None,
+        "reviewer_session_resumable": False,
         "last_review_verdict": None,
         "last_reviewed_at": None,
         "review_passed_at": None,
@@ -690,11 +692,16 @@ def allowed_actions_for_meta(meta: dict[str, Any] | None) -> list[str]:
         return ["start"]
     status = meta.get("status")
     if status == "planning":
-        return ["update-plan", "approve-plan", "resume"]
+        actions = ["update-plan", "resume"]
+        if meta.get("next_action") == "approve-plan":
+            actions.append("approve-plan")
+        return actions
     if status == "plan_approved":
         return ["update-plan", "dev", "auto-dev", "resume"]
     if status == "developing":
-        actions = ["update-plan", "dev", "resume"]
+        actions = ["update-plan", "resume"]
+        if meta.get("next_action") == "dev":
+            actions.append("dev")
         if is_auto_dev_resumable(meta) or can_restart_auto_dev(meta):
             actions.append("auto-dev")
         if meta.get("next_action") == "review":
@@ -735,11 +742,11 @@ def evaluate_gate(action: str, meta: dict[str, Any] | None, task_id: str | None 
         )
 
     if action == "approve-plan":
-        allowed = status == "planning"
+        allowed = status == "planning" and next_action == "approve-plan"
         return GateResult(
             action,
             allowed,
-            "Plan approval requires planning status." if not allowed else "Plan approval allowed.",
+            "Plan approval requires planning status with next_action=approve-plan." if not allowed else "Plan approval allowed.",
             status,
             next_action,
             allowed_actions,
@@ -747,11 +754,11 @@ def evaluate_gate(action: str, meta: dict[str, Any] | None, task_id: str | None 
         )
 
     if action == "dev":
-        allowed = status in {"plan_approved", "developing"}
+        allowed = status == "plan_approved" or (status == "developing" and next_action == "dev")
         return GateResult(
             action,
             allowed,
-            "Development requires an approved plan." if not allowed else "Development allowed.",
+            "Development requires plan_approved or developing status with next_action=dev." if not allowed else "Development allowed.",
             status,
             next_action,
             allowed_actions,
