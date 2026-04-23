@@ -1,6 +1,6 @@
 {
   "name": "devflow",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Structured architecture, plan, dev, auto-dev, and review workflow for large development tasks with persisted task state and markdown artifacts.",
   "skills": "./skills/",
   "interface": {
