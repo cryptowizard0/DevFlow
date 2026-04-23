@@ -248,7 +248,7 @@ DevFlowWorkspace/tasks/TASK-xxx/subagent-runs/<ROLE-NNN>/
 └── result.json
 ```
 
-`Planner`, `Dev`, and `Reviewer` are each created as fresh subagents per round. They read only the handoff files plus the task worktree, then report completion through `result.md` and `result.json`. `resume` is file-first: it finalizes completed result files or redispatches the pending handoff. It never depends on a live chat session to continue a task.
+`Planner`, `Dev`, and `Reviewer` are each created as fresh subagents per round. They read only the handoff files plus the task worktree, then report completion through `result.md` and `result.json`. `resume` is file-first: it finalizes completed result files or redispatches the pending handoff, but it preserves an explicit reviewer `blocked` verdict instead of auto-retrying review. For host-supplied dev completions, the orchestrator treats `--dev-summary` as a completion signal only when paired with concrete result metadata such as notes, touched files, or commands. It never depends on a live chat session to continue a task.
 
 ## Core Workspace Files
 

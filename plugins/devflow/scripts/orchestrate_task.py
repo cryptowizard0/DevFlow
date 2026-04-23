@@ -131,6 +131,10 @@ def dispatch_run(context, args: argparse.Namespace, spec) -> DispatchResult:
     )
 
 
+def has_explicit_dev_result(args: argparse.Namespace) -> bool:
+    return bool(args.dev_notes or args.dev_file or args.dev_command)
+
+
 def direct_result_written(spec, args: argparse.Namespace) -> bool:
     if spec.role == "plan":
         plan_body = load_artifact_text(args.plan_body, args.plan_file)
@@ -151,7 +155,7 @@ def direct_result_written(spec, args: argparse.Namespace) -> bool:
         )
         return True
     if spec.role == "dev":
-        if not args.dev_summary:
+        if not args.dev_summary or not has_explicit_dev_result(args):
             return False
         overwrite_result_payload(
             spec,
@@ -586,6 +590,8 @@ def maybe_resume_blocked_execution(context, args: argparse.Namespace) -> dict[st
 
     next_action = context.meta.get("next_action")
     if context.meta.get("status") != "developing" or next_action not in {"dev", "review"}:
+        return None
+    if next_action == "review" and context.meta.get("current_step") == "task blocked by review":
         return None
 
     set_fields: dict[str, object] = {

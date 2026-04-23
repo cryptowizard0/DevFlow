@@ -18,7 +18,7 @@ Use explicit action words:
 - `auto-dev`: after plan approval, enter persisted auto-dev mode and keep looping `dev -> review` until review returns `pass` or `blocked`
 - `review`: generate `change-summary.md` from the target worktree, invoke the `Reviewer` subagent, write `review.md`, and move back to `developing` with `next_action=dev` or `next_action=done`
 - `done`: only after a passing review; refresh `summary.md`, mark the task complete, and remove it from `active-tasks.json`
-- `resume`: inspect the focus task, finalize any completed subagent result files, redispatch pending handoffs when needed, and continue persisted `auto-dev` loops from task files rather than live chat state
+- `resume`: inspect the focus task, finalize any completed subagent result files, redispatch pending handoffs when needed, preserve an explicit reviewer `blocked` verdict instead of auto-retrying it, and continue persisted `auto-dev` loops from task files rather than live chat state
 
 `plan` may optionally bind the new task to an architecture package by recording:
 
@@ -174,6 +174,6 @@ This console is a bundled static asset, not a first-class plugin app. Use it as 
 - Review must be delegated to the internal `devflow-review-internal` skill through a fixed-name subagent called `Reviewer`.
 - `Reviewer` runs as a fresh subagent per round and reads only task-scoped handoff files.
 - `devflow-task` is orchestration-only. It must not execute coding work directly.
-- Repo-local scripts may create task-scoped handoff/result files and persist host-supplied subagent results; they must not depend on repo-local live-session resume behavior.
+- Repo-local scripts may create task-scoped handoff/result files and persist host-supplied subagent results; for dev completion this requires `--dev-summary` plus concrete result metadata such as notes, touched files, or commands, and they must not depend on repo-local live-session resume behavior.
 - `auto-dev` should persist `execution_mode=auto_dev` with `auto_loop_state=running`, stop on `pass` at `next_action=done`, and stop on `blocked` without retrying.
 - If a required subagent cannot be started or fails, mark the task blocked in `meta.json` and stop instead of silently degrading.

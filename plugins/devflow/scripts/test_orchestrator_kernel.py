@@ -161,6 +161,74 @@ class OrchestratorKernelTests(unittest.TestCase):
         self.assertIsNone(saved_meta["active_subagent_role"])
         self.assertEqual(saved_meta["last_subagent_role"], "dev")
 
+    def test_repeat_dev_focus_does_not_finalize_active_run(self) -> None:
+        _, workspace, task_dir = make_workspace()
+        meta = init_meta("TASK-900", "Test Task", str(task_dir), "codex/devflow/TASK-900", "main")
+        meta["status"] = "plan_approved"
+        meta["next_action"] = "dev"
+        seed_task(task_dir, meta)
+
+        first = run_cli(
+            "--workspace",
+            str(workspace),
+            "--task-id",
+            "TASK-900",
+            "--action",
+            "dev",
+            "--dev-summary",
+            "Focus on parser cleanup",
+        )
+        self.assertEqual(first["active_subagent_run_id"], "DEV-001")
+
+        second = run_cli(
+            "--workspace",
+            str(workspace),
+            "--task-id",
+            "TASK-900",
+            "--action",
+            "dev",
+            "--dev-summary",
+            "Focus on parser cleanup",
+        )
+        self.assertEqual(second["active_subagent_role"], "dev")
+        self.assertEqual(second["active_subagent_run_id"], "DEV-001")
+        self.assertEqual(second["next_action"], "dev")
+        saved_meta = json.loads((task_dir / "meta.json").read_text(encoding="utf-8"))
+        self.assertEqual(saved_meta["active_subagent_run_id"], "DEV-001")
+        self.assertEqual(saved_meta["next_action"], "dev")
+
+    def test_resume_can_finalize_active_dev_run_when_result_metadata_is_supplied(self) -> None:
+        _, workspace, task_dir = make_workspace()
+        meta = init_meta("TASK-900", "Test Task", str(task_dir), "codex/devflow/TASK-900", "main")
+        meta["status"] = "plan_approved"
+        meta["next_action"] = "dev"
+        seed_task(task_dir, meta)
+
+        first = run_cli("--workspace", str(workspace), "--task-id", "TASK-900", "--action", "dev")
+        self.assertEqual(first["active_subagent_run_id"], "DEV-001")
+
+        resumed = run_cli(
+            "--workspace",
+            str(workspace),
+            "--task-id",
+            "TASK-900",
+            "--action",
+            "resume",
+            "--dev-summary",
+            "Implement parser cleanup",
+            "--dev-notes",
+            "Implemented parser cleanup and tightened state handling.",
+            "--dev-file",
+            "src/parser.py",
+            "--dev-command",
+            "pytest tests/test_parser.py",
+        )
+        self.assertEqual(resumed["next_action"], "review")
+        self.assertIn("Implement parser cleanup", (task_dir / "dev.md").read_text(encoding="utf-8"))
+        saved_meta = json.loads((task_dir / "meta.json").read_text(encoding="utf-8"))
+        self.assertIsNone(saved_meta["active_subagent_role"])
+        self.assertEqual(saved_meta["last_subagent_role"], "dev")
+
     def test_failed_run_clears_active_subagent_fields(self) -> None:
         _, workspace, task_dir = make_workspace()
         meta = init_meta("TASK-900", "Test Task", str(task_dir), "codex/devflow/TASK-900", "main")
@@ -265,6 +333,38 @@ class OrchestratorKernelTests(unittest.TestCase):
         saved_meta = json.loads((task_dir / "meta.json").read_text(encoding="utf-8"))
         self.assertFalse(saved_meta["is_blocked"])
         self.assertEqual(saved_meta["active_subagent_run_id"], "REVIEW-002")
+
+    def test_resume_preserves_review_blocked_verdict(self) -> None:
+        _, workspace, task_dir = make_workspace()
+        meta = init_meta("TASK-900", "Test Task", str(task_dir), "codex/devflow/TASK-900", "main")
+        meta["status"] = "developing"
+        meta["next_action"] = "review"
+        seed_task(task_dir, meta)
+
+        blocked = run_cli(
+            "--workspace",
+            str(workspace),
+            "--task-id",
+            "TASK-900",
+            "--action",
+            "review",
+            "--review-body",
+            "# Review\n\nBlocked by missing production credential.\n",
+            "--review-verdict",
+            "blocked",
+        )
+        self.assertTrue(blocked["ok"])
+        self.assertEqual(blocked["status"], "developing")
+        self.assertEqual(blocked["next_action"], "review")
+
+        resumed = run_cli("--workspace", str(workspace), "--task-id", "TASK-900", "--action", "resume")
+        self.assertTrue(resumed["ok"])
+        self.assertEqual(resumed["status"], "developing")
+        self.assertEqual(resumed["next_action"], "review")
+        self.assertIsNone(resumed["active_subagent_role"])
+        saved_meta = json.loads((task_dir / "meta.json").read_text(encoding="utf-8"))
+        self.assertTrue(saved_meta["is_blocked"])
+        self.assertEqual(saved_meta["current_step"], "task blocked by review")
 
     def test_review_dispatch_failure_returns_to_resumable_review_state(self) -> None:
         _, workspace, task_dir = make_workspace()
