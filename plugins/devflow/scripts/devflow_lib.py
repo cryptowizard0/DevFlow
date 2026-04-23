@@ -19,6 +19,7 @@ ACTIVE_TASK_FILENAME = "active-task.json"
 ACTIVE_TASKS_FILENAME = "active-tasks.json"
 GLOBAL_SUMMARY_JSON_FILENAME = "global-summary.json"
 GLOBAL_SUMMARY_MD_FILENAME = "global-summary.md"
+SUBAGENT_RUNS_DIRNAME = "subagent-runs"
 TASK_STATUS = (
     "draft",
     "planning",
@@ -215,6 +216,10 @@ def task_dir_for_id(workspace: Path, task_id: str) -> Path:
     return tasks_dir(workspace) / task_id
 
 
+def subagent_runs_dir(task_dir: Path) -> Path:
+    return task_dir / SUBAGENT_RUNS_DIRNAME
+
+
 def architecture_dir_for_id(workspace: Path, architecture_id: str) -> Path:
     return architectures_dir(workspace) / architecture_id
 
@@ -314,6 +319,35 @@ def ensure_workspace(workspace: Path) -> None:
     sync_workspace_state(workspace)
 
 
+def normalize_task_meta_runtime(meta: dict[str, Any]) -> bool:
+    changed = False
+    defaults = {
+        "planner_agent_name": "Planner",
+        "planner_agent_id": None,
+        "planner_agent_status": None,
+        "planner_session_resumable": False,
+        "reviewer_agent_name": "Reviewer",
+        "reviewer_agent_id": None,
+        "reviewer_agent_status": None,
+        "reviewer_session_resumable": False,
+        "active_subagent_role": None,
+        "active_subagent_run_id": None,
+        "active_subagent_name": None,
+        "active_subagent_id": None,
+        "active_subagent_status": None,
+        "active_subagent_request_path": None,
+        "active_subagent_result_path": None,
+        "last_subagent_role": None,
+        "last_subagent_run_id": None,
+        "global_summary_updated_at": None,
+    }
+    for key, value in defaults.items():
+        if key not in meta:
+            meta[key] = value
+            changed = True
+    return changed
+
+
 def migrate_legacy_active_index(workspace: Path, legacy_active: dict[str, Any]) -> dict[str, Any]:
     task_id = legacy_active.get("task_id")
     if not task_id:
@@ -341,7 +375,9 @@ def iter_task_meta(workspace: Path) -> list[tuple[Path, dict[str, Any]]]:
             continue
         meta_path = task_dir / "meta.json"
         if meta_path.exists():
-            results.append((meta_path, read_json(meta_path)))
+            meta = read_json(meta_path)
+            normalize_task_meta_runtime(meta)
+            results.append((meta_path, meta))
     return results
 
 
@@ -495,7 +531,10 @@ def load_meta(workspace: Path, task_id: str | None = None) -> tuple[Path, dict[s
     meta_path = task_dir / "meta.json"
     if not meta_path.exists():
         raise FileNotFoundError(f"Missing meta.json for task {resolved_task_id}")
-    return meta_path, read_json(meta_path)
+    meta = read_json(meta_path)
+    if normalize_task_meta_runtime(meta):
+        write_json(meta_path, meta)
+    return meta_path, meta
 
 
 def load_architecture_meta(workspace: Path, architecture_id: str) -> tuple[Path, dict[str, Any]]:
@@ -599,9 +638,20 @@ def init_meta(
         "planner_agent_name": "Planner",
         "planner_agent_id": None,
         "planner_agent_status": None,
+        "planner_session_resumable": False,
         "reviewer_agent_name": "Reviewer",
         "reviewer_agent_id": None,
         "reviewer_agent_status": None,
+        "reviewer_session_resumable": False,
+        "active_subagent_role": None,
+        "active_subagent_run_id": None,
+        "active_subagent_name": None,
+        "active_subagent_id": None,
+        "active_subagent_status": None,
+        "active_subagent_request_path": None,
+        "active_subagent_result_path": None,
+        "last_subagent_role": None,
+        "last_subagent_run_id": None,
         "last_review_verdict": None,
         "last_reviewed_at": None,
         "review_passed_at": None,
@@ -690,11 +740,16 @@ def allowed_actions_for_meta(meta: dict[str, Any] | None) -> list[str]:
         return ["start"]
     status = meta.get("status")
     if status == "planning":
-        return ["update-plan", "approve-plan", "resume"]
+        actions = ["update-plan", "resume"]
+        if meta.get("next_action") == "approve-plan":
+            actions.append("approve-plan")
+        return actions
     if status == "plan_approved":
         return ["update-plan", "dev", "auto-dev", "resume"]
     if status == "developing":
-        actions = ["update-plan", "dev", "resume"]
+        actions = ["update-plan", "resume"]
+        if meta.get("next_action") == "dev":
+            actions.append("dev")
         if is_auto_dev_resumable(meta) or can_restart_auto_dev(meta):
             actions.append("auto-dev")
         if meta.get("next_action") == "review":
@@ -735,11 +790,11 @@ def evaluate_gate(action: str, meta: dict[str, Any] | None, task_id: str | None 
         )
 
     if action == "approve-plan":
-        allowed = status == "planning"
+        allowed = status == "planning" and next_action == "approve-plan"
         return GateResult(
             action,
             allowed,
-            "Plan approval requires planning status." if not allowed else "Plan approval allowed.",
+            "Plan approval requires planning status with next_action=approve-plan." if not allowed else "Plan approval allowed.",
             status,
             next_action,
             allowed_actions,
@@ -747,11 +802,11 @@ def evaluate_gate(action: str, meta: dict[str, Any] | None, task_id: str | None 
         )
 
     if action == "dev":
-        allowed = status in {"plan_approved", "developing"}
+        allowed = status == "plan_approved" or (status == "developing" and next_action == "dev")
         return GateResult(
             action,
             allowed,
-            "Development requires an approved plan." if not allowed else "Development allowed.",
+            "Development requires plan_approved or developing status with next_action=dev." if not allowed else "Development allowed.",
             status,
             next_action,
             allowed_actions,
@@ -960,6 +1015,7 @@ def task_file_names() -> list[str]:
 
 def create_task_files(task_dir: Path, title: str, request_text: str, task_id: str) -> None:
     timestamp = now_iso()
+    subagent_runs_dir(task_dir).mkdir(parents=True, exist_ok=True)
     write_text(task_dir / "request.md", f"# Request\n\n- Task ID: `{task_id}`\n- Title: {title}\n- Created At: {timestamp}\n\n## Request\n\n{request_text.strip()}\n")
     write_text(task_dir / "plan.md", "# Plan\n\nPlan not drafted yet.\n")
     write_text(task_dir / "plan-history.md", "# Plan History\n")
@@ -1063,6 +1119,7 @@ def write_architecture_summary(architecture_dir: Path) -> Path:
 
 def build_task_summary_entry(task_dir: Path) -> dict[str, Any]:
     meta = read_json(task_dir / "meta.json")
+    normalize_task_meta_runtime(meta)
     request_text = read_text(task_dir / "request.md")
     plan_text = read_text(task_dir / "plan.md")
     dev_text = read_text(task_dir / "dev.md")
@@ -1112,6 +1169,15 @@ def build_task_summary_entry(task_dir: Path) -> dict[str, Any]:
         "architecture_path": architecture_path,
         "architecture_title": architecture_title,
         "architecture_overview": architecture_overview,
+        "active_subagent_role": meta.get("active_subagent_role"),
+        "active_subagent_run_id": meta.get("active_subagent_run_id"),
+        "active_subagent_name": meta.get("active_subagent_name"),
+        "active_subagent_id": meta.get("active_subagent_id"),
+        "active_subagent_status": meta.get("active_subagent_status"),
+        "active_subagent_request_path": meta.get("active_subagent_request_path"),
+        "active_subagent_result_path": meta.get("active_subagent_result_path"),
+        "last_subagent_role": meta.get("last_subagent_role"),
+        "last_subagent_run_id": meta.get("last_subagent_run_id"),
         "overview": first_meaningful_line(dev_text, plan_text, architecture_overview or "", request_text, review_text),
         "key_structures": extract_keyword_lines(sources, SUMMARY_SECTION_KEYWORDS["key_structures"]),
         "key_config": extract_keyword_lines(sources, SUMMARY_SECTION_KEYWORDS["key_config"]),
@@ -1144,6 +1210,15 @@ def render_task_summary(task_dir: Path) -> str:
             f"- Architecture ID: `{entry['architecture_id'] or 'n/a'}`",
             f"- Module ID: `{entry['module_id'] or 'n/a'}`",
             f"- Architecture Path: `{entry['architecture_path'] or 'n/a'}`",
+            f"- Active Subagent Role: `{entry['active_subagent_role'] or 'n/a'}`",
+            f"- Active Subagent Run ID: `{entry['active_subagent_run_id'] or 'n/a'}`",
+            f"- Active Subagent Name: `{entry['active_subagent_name'] or 'n/a'}`",
+            f"- Active Subagent ID: `{entry['active_subagent_id'] or 'n/a'}`",
+            f"- Active Subagent Status: `{entry['active_subagent_status'] or 'n/a'}`",
+            f"- Active Request Path: `{entry['active_subagent_request_path'] or 'n/a'}`",
+            f"- Active Result Path: `{entry['active_subagent_result_path'] or 'n/a'}`",
+            f"- Last Subagent Role: `{entry['last_subagent_role'] or 'n/a'}`",
+            f"- Last Subagent Run ID: `{entry['last_subagent_run_id'] or 'n/a'}`",
             f"- Last Updated: {entry['updated_at'] or 'n/a'}",
             "",
             "## Architecture Context",

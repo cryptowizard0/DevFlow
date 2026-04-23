@@ -5,13 +5,14 @@ description: Internal DevFlow development guidance. Use only when the DevFlow or
 
 # DevFlow Internal Development
 
-This skill supports the main DevFlow agent during the implementation phase.
+This skill supports the DevFlow orchestrator during the implementation phase.
 
-It may be used from a normal `dev` action or from the looped `auto-dev` action.
+It always runs inside a fresh `Dev` subagent created by `devflow-task`.
 
 ## Responsibilities
 
-- Select the next bounded implementation slice from the approved plan.
+- Read the task-scoped handoff files under `subagent-runs/DEV-xxx/` instead of relying on orchestrator chat context.
+- Select the next bounded implementation slice from the approved plan and the handoff focus.
 - Read `global-summary.md` before coding so the task can reuse shared decisions and avoid known pitfalls.
 - When the task is bound to `architecture_id + module_id`, read the linked architecture package in this order before coding:
   - `architecture.md`
@@ -20,8 +21,10 @@ It may be used from a normal `dev` action or from the looped `auto-dev` action.
   - `constraints.md`
   - `modules/<module-id>.md`
 - Implement code changes only inside the current task's assigned worktree.
-- Collect concise development notes for `dev.md`.
-- Prepare a succinct change summary input for later review.
+- Write the primary result markdown to the declared `result.md`.
+- Write machine-readable completion data to the declared `result.json`.
+- Treat `dev` as the execution plane. Do not absorb orchestrator state-machine decisions into the implementation slice.
+- When the repo uses `plugins/devflow/scripts/dev_executor.py`, keep development logging and execution-result shaping aligned with that boundary.
 
 ## Hard constraints
 
@@ -29,4 +32,5 @@ It may be used from a normal `dev` action or from the looped `auto-dev` action.
 - Keep changes scoped to the current slice; do not silently execute the whole plan in one step unless the slice explicitly covers it.
 - Do not self-approve the result.
 - Do not write directly to another task's worktree.
-- Update task logs through the orchestrating skill and helper scripts rather than ad hoc file edits.
+- Do not write `meta.json`, `dev.md`, `review.md`, or other DevFlow state files directly.
+- Report completion only through the declared handoff result files.

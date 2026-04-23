@@ -74,6 +74,7 @@ Before choosing a path, it helps to understand the layering:
 - `devflow-task` works at the task-execution layer
 - one architecture package may drive one or more implementation tasks
 - each task runs the lower-level `plan -> dev -> review -> done` workflow, with an optional `auto-dev` execution mode after plan approval
+- within `devflow-task`, orchestrator control is separate from `Planner` / `Dev` / `Reviewer` execution, and all role context is passed through task-scoped files
 
 `devflow-architect` is the upper layer. It defines the system, modules, data structures, constraints, and delivery order.
 `devflow-task` is the lower layer. It takes one bounded implementation task and executes it through the tracked task workflow.
@@ -206,6 +207,7 @@ Key rules:
 - never skip planning
 - never run `dev` before `approve-plan`
 - never run `auto-dev` before `approve-plan`
+- treat orchestrator state management and `Planner` / `Dev` / `Reviewer` execution as separate responsibilities
 - review does not modify code
 - review pass means "ready to finish", not "already finished"
 - only explicit `done` completes a task
@@ -231,6 +233,22 @@ When a task is bound, downstream development and architecture-sensitive review s
 5. `modules/<module-id>.md`
 
 This lets one architecture package drive multiple implementation tasks cleanly.
+
+## Subagent Handoffs
+
+`devflow-task` is the control plane. It does not carry implementation context directly into `dev`.
+
+For every `plan`, `dev`, and `review` round, the orchestrator creates a task-scoped handoff under:
+
+```text
+DevFlowWorkspace/tasks/TASK-xxx/subagent-runs/<ROLE-NNN>/
+├── request.json
+├── context.md
+├── result.md
+└── result.json
+```
+
+`Planner`, `Dev`, and `Reviewer` are each created as fresh subagents per round. They read only the handoff files plus the task worktree, then report completion through `result.md` and `result.json`. `resume` is file-first: it finalizes completed result files or redispatches the pending handoff, but it preserves an explicit reviewer `blocked` verdict instead of auto-retrying review. For host-supplied dev completions, the orchestrator treats `--dev-summary` as a completion signal only when paired with concrete result metadata such as notes, touched files, or commands. It never depends on a live chat session to continue a task.
 
 ## Core Workspace Files
 
@@ -301,6 +319,10 @@ Important paths:
 - `plugins/devflow/skills/devflow-task/SKILL.md`: public implementation workflow entrypoint
 - `plugins/devflow/skills/devflow-architect/SKILL.md`: public architecture workflow entrypoint
 - `plugins/devflow/scripts/`: deterministic helpers for workspace/state operations
+- `plugins/devflow/scripts/orchestrate_task.py`: task-level deterministic orchestration entrypoint
+- `plugins/devflow/scripts/orchestrator_lib.py`: shared orchestration control-plane helpers
+- `plugins/devflow/scripts/dev_executor.py`: execution-plane helpers for `dev` slices
+- `plugins/devflow/scripts/agent_runtime.py`: runtime adapter contracts for planner/reviewer artifacts
 - `plugins/devflow/assets/console/index.html`: static console
 
 ## Current Boundary
@@ -313,14 +335,16 @@ Already implemented:
 - architecture workspace protocol
 - per-task isolated worktree helpers
 - task/global summary generators
+- deterministic task-orchestration kernel for artifact persistence, task transitions, and event logging
+- explicit control-plane / execution-plane separation for `devflow-task`
 - static console page
 
 Not fully implemented yet:
 
-- the main orchestrator that wires `Planner` and `Reviewer` to real `spawn_agent` and `resume_agent` calls
-- full end-to-end automation of the entire lifecycle inside Codex runtime
+- live runtime wiring that connects repo-local orchestration scripts to real `spawn_agent` and `resume_agent` calls
+- full end-to-end automation of the entire lifecycle inside Codex runtime without a host agent supplying planner/reviewer artifacts
 - a first-class orchestrator loop for `devflow-architect`
 
-At this stage, DevFlow is a strong workflow skeleton and file protocol, not yet a fully closed-loop orchestrator.
+At this stage, DevFlow has a real deterministic task-orchestration kernel, but it is not yet a fully closed-loop runtime. The host agent still supplies planner/reviewer artifacts, while repo-local scripts persist state, summaries, and review/dev workflow transitions.
 
 `auto-dev` now persists enough execution state for the public skill to resume an in-flight `dev -> review` loop without changing the core stage model.

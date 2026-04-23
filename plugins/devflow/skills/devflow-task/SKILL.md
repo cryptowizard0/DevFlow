@@ -14,11 +14,11 @@ Use explicit action words:
 - `plan`: create a new tracked task, write `request.md`, create the task worktree, set status to `planning`, set the new task as the focus task, and invoke the internal planning skill
 - `update-plan`: revise the current plan, append `plan-history.md`, increment `plan_version`, reset approval, and refresh both `summary.md` and the workspace global summary
 - `approve-plan`: only after the user explicitly approves the plan; move the target task to `plan_approved`
-- `dev`: execute the next bounded implementation slice in the target task's own worktree and append to `dev.md`
+- `dev`: create a task-scoped handoff under `subagent-runs/`, dispatch the internal `Dev` subagent, and append to `dev.md` only after the subagent writes its result files
 - `auto-dev`: after plan approval, enter persisted auto-dev mode and keep looping `dev -> review` until review returns `pass` or `blocked`
 - `review`: generate `change-summary.md` from the target worktree, invoke the `Reviewer` subagent, write `review.md`, and move back to `developing` with `next_action=dev` or `next_action=done`
 - `done`: only after a passing review; refresh `summary.md`, mark the task complete, and remove it from `active-tasks.json`
-- `resume`: read the focus task plus the parallel active-task index; if the task is in persisted `auto-dev` running mode, continue that loop instead of only printing status
+- `resume`: inspect the focus task, finalize any completed subagent result files, redispatch pending handoffs when needed, preserve an explicit reviewer `blocked` verdict instead of auto-retrying it, and continue persisted `auto-dev` loops from task files rather than live chat state
 
 `plan` may optionally bind the new task to an architecture package by recording:
 
@@ -37,6 +37,7 @@ All actions may target an explicit task. If no task is specified, use the curren
 - Never mark review as passed without the internal review skill's verdict.
 - Never end a task automatically after review; only the explicit `done` action completes the task.
 - Always update `meta.json` and the relevant markdown artifact for each phase.
+- Always pass plan/dev/review context through task-scoped handoff files under `subagent-runs/`.
 - `status` only represents the stage status. Do not overload it with runtime agent state.
 - `planner_agent_status` and `reviewer_agent_status` only represent runtime/session state.
 - `is_blocked` and `block_reason` only represent blocking state; they do not replace the stage status.
@@ -74,6 +75,22 @@ DevFlowWorkspace/
       change-summary.md
       review.md
       summary.md
+      subagent-runs/
+        PLAN-xxx/
+          request.json
+          context.md
+          result.md
+          result.json
+        DEV-xxx/
+          request.json
+          context.md
+          result.md
+          result.json
+        REVIEW-xxx/
+          request.json
+          context.md
+          result.md
+          result.json
 ```
 
 `active-tasks.json` is the multi-task source of truth for unfinished tasks and the focus task. `active-task.json` is only a compatibility projection for the current focus task.
@@ -85,6 +102,7 @@ DevFlowWorkspace/
 
 - task identity and stage snapshot: `task_id`, `title`, `status`, `next_action`
 - orchestration snapshot: `execution_mode`, `auto_loop_state`
+- active subagent snapshot: `active_subagent_role`, `active_subagent_run_id`, `active_subagent_status`, handoff/result paths
 - blocking state: `is_blocked`, `block_reason`
 - worktree assignment: `worktree_path`, `worktree_branch`, `worktree_base_ref`
 - optional architecture binding: `architecture_id`, `module_id`, `architecture_path`
@@ -124,6 +142,10 @@ Use these deterministic helpers for file and state operations:
 - `plugins/devflow/scripts/init_architecture.py`
 - `plugins/devflow/scripts/check_gate.py`
 - `plugins/devflow/scripts/auto_dev.py`
+- `plugins/devflow/scripts/orchestrate_task.py`
+- `plugins/devflow/scripts/orchestrator_lib.py`
+- `plugins/devflow/scripts/dev_executor.py`
+- `plugins/devflow/scripts/agent_runtime.py`
 - `plugins/devflow/scripts/update_meta.py`
 - `plugins/devflow/scripts/update_architecture_meta.py`
 - `plugins/devflow/scripts/append_plan_history.py`
@@ -146,8 +168,12 @@ This console is a bundled static asset, not a first-class plugin app. Use it as 
 ## Internal delegation
 
 - Planning must be delegated to the internal `devflow-plan-internal` skill through a fixed-name subagent called `Planner`.
-- `Planner` is task-scoped and should be reused across plan iterations when the live session is available.
+- `Planner` runs as a fresh subagent per round and reads only task-scoped handoff files.
+- Development must be delegated to the internal `devflow-dev-internal` skill through a fixed-name subagent called `Dev`.
+- `Dev` runs as a fresh subagent per round and may modify code only inside the task worktree.
 - Review must be delegated to the internal `devflow-review-internal` skill through a fixed-name subagent called `Reviewer`.
-- Development is executed by the main agent, optionally guided by `devflow-dev-internal`, both for manual `dev` and looped `auto-dev`.
+- `Reviewer` runs as a fresh subagent per round and reads only task-scoped handoff files.
+- `devflow-task` is orchestration-only. It must not execute coding work directly.
+- Repo-local scripts may create task-scoped handoff/result files and persist host-supplied subagent results; for dev completion this requires `--dev-summary` plus concrete result metadata such as notes, touched files, or commands, and they must not depend on repo-local live-session resume behavior.
 - `auto-dev` should persist `execution_mode=auto_dev` with `auto_loop_state=running`, stop on `pass` at `next_action=done`, and stop on `blocked` without retrying.
 - If a required subagent cannot be started or fails, mark the task blocked in `meta.json` and stop instead of silently degrading.
